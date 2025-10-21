@@ -1,0 +1,324 @@
+import { MessageContext } from "@/types/whatsapp.types";
+import { REGEX_PATTERNS } from "@/utils/constants";
+import { BasenameService } from "../blockchain/basenameService";
+import { logger } from "@/utils/logger";
+
+export interface ParsedIntent {
+  type: string;
+  confidence: number;
+  data?: any;
+}
+
+export class IntentParser {
+  private patterns = {
+    // Greetings
+    GREETING: [
+      /^(hi|hello|hey|good morning|good afternoon|good evening)/i,
+      /^(start|begin)/i,
+    ],
+
+    // Help
+    HELP: [/^(help|commands|menu|what can you do)/i, /^(how to|how do i)/i],
+
+    // Card operations
+    CREATE_CARD: [
+      /^(create card|new card|make card|get card)/i,
+      /^(i want a card|need a card)/i,
+    ],
+
+    CHECK_BALANCE: [
+      /^(balance|check balance|my balance|show balance)/i,
+      /^(how much|what's my balance)/i,
+    ],
+
+    LIST_CARDS: [
+      /^(my cards|list cards|show cards|cards)/i,
+      /^(all cards|view cards)/i,
+    ],
+
+    // Transactions
+    SEND_MONEY: [
+      /^send\s+(\d+(?:\.\d+)?)\s+(?:cngn\s+)?to\s+(.+)/i,
+      /^transfer\s+(\d+(?:\.\d+)?)\s+(?:cngn\s+)?to\s+(.+)/i,
+      /^pay\s+(\d+(?:\.\d+)?)\s+(?:cngn\s+)?to\s+(.+)/i,
+    ],
+
+    DEPOSIT: [
+      /^(deposit|add funds|fund|top up)/i,
+      /^(how to deposit|deposit address)/i,
+    ],
+
+    BUY_CNGN: [
+      /^(buy cngn|buy|on ramp|onramp)/i,
+      /^(buy (\d+(?:\.\d+)?)\s*(?:cngn|naira)?)/i,
+      /^(add money|fund wallet)/i,
+    ],
+
+    WITHDRAW: [
+      /^(withdraw|cash out|off ramp|offramp)/i,
+      /^(sell cngn|convert to naira)/i,
+      /^(withdraw (\d+(?:\.\d+)?)\s*(?:cngn|naira)?)/i,
+    ],
+
+    BANK_ACCOUNT: [
+      /^(add bank|bank account|set bank)/i,
+      /^(bank details|my bank)/i,
+    ],
+
+    // History
+    TRANSACTION_HISTORY: [
+      /^(history|transactions|recent|activity)/i,
+      /^(show history|my transactions)/i,
+    ],
+
+    // Profile
+    PROFILE: [/^(profile|my info|account|me)/i, /^(show profile|my account)/i],
+
+    // Basename operations
+    SET_BASENAME: [
+      /^set basename\s+(.+)/i,
+      /^basename\s+(.+)/i,
+      /^my basename is\s+(.+)/i,
+    ],
+
+    CHECK_BASENAME: [
+      /^check basename\s+(.+)/i,
+      /^is\s+(.+)\s+available/i,
+      /^basename available\s+(.+)/i,
+    ],
+  };
+
+  /**
+   * Parse user message to determine intent
+   */
+  async parseIntent(
+    message: string,
+    context: MessageContext
+  ): Promise<ParsedIntent> {
+    try {
+      const cleanMessage = message.trim().toLowerCase();
+
+      // Check each intent pattern
+      for (const [intentType, patterns] of Object.entries(this.patterns)) {
+        for (const pattern of patterns) {
+          const match = cleanMessage.match(pattern);
+
+          if (match) {
+            const intent: ParsedIntent = {
+              type: intentType,
+              confidence: 0.9,
+            };
+
+            // Extract data for specific intents
+            if (intentType === "SEND_MONEY" && match.length >= 3) {
+              const amount = match[1];
+              const recipient = match[2].trim();
+
+              // Validate amount
+              if (!REGEX_PATTERNS.AMOUNT.test(amount)) {
+                return {
+                  type: "ERROR",
+                  confidence: 1.0,
+                  data: { message: "Invalid amount format" },
+                };
+              }
+
+              // Process recipient (could be address or basename)
+              const processedRecipient = await this.processRecipient(recipient);
+
+              intent.data = {
+                amount,
+                recipient: processedRecipient.address || recipient,
+                recipientType: processedRecipient.type,
+                originalRecipient: recipient,
+              };
+            }
+
+            // Handle basename operations
+            if (
+              (intentType === "SET_BASENAME" ||
+                intentType === "CHECK_BASENAME") &&
+              match.length >= 2
+            ) {
+              const basename = match[1].trim();
+              intent.data = { basename };
+            }
+
+            // Handle buy cNGN with amount
+            if (intentType === "BUY_CNGN" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle withdraw with amount
+            if (intentType === "WITHDRAW" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            return intent;
+          }
+        }
+      }
+
+      // If no pattern matches, try to extract common entities
+      return this.fallbackParsing(cleanMessage);
+    } catch (error) {
+      logger.error("Error parsing intent:", error);
+      return {
+        type: "ERROR",
+        confidence: 0.5,
+        data: { message: "Failed to parse message" },
+      };
+    }
+  }
+
+  /**
+   * Process recipient (address or basename)
+   */
+  private async processRecipient(recipient: string): Promise<{
+    address?: string;
+    type: "address" | "basename" | "unknown";
+  }> {
+    try {
+      // Check if it's an Ethereum address
+      if (REGEX_PATTERNS.ETHEREUM_ADDRESS.test(recipient)) {
+        return {
+          address: recipient,
+          type: "address",
+        };
+      }
+
+      // Check if it's a basename
+      if (REGEX_PATTERNS.BASENAME.test(recipient) || recipient.includes(".")) {
+        const basename = BasenameService.formatBasename(recipient);
+        const resolved = await BasenameService.resolveBasename(basename);
+
+        if (resolved.isValid) {
+          return {
+            address: resolved.address,
+            type: "basename",
+          };
+        }
+      }
+
+      return { type: "unknown" };
+    } catch (error) {
+      logger.error("Error processing recipient:", error);
+      return { type: "unknown" };
+    }
+  }
+
+  /**
+   * Fallback parsing for unmatched messages
+   */
+  private fallbackParsing(message: string): ParsedIntent {
+    // Check for numbers (might be balance check)
+    if (/^\d+$/.test(message)) {
+      return {
+        type: "CHECK_BALANCE",
+        confidence: 0.3,
+      };
+    }
+
+    // Check for common keywords
+    if (message.includes("card")) {
+      return {
+        type: "LIST_CARDS",
+        confidence: 0.4,
+      };
+    }
+
+    if (
+      message.includes("money") ||
+      message.includes("send") ||
+      message.includes("pay")
+    ) {
+      return {
+        type: "HELP",
+        confidence: 0.3,
+        data: { context: "payment" },
+      };
+    }
+
+    if (message.includes("balance")) {
+      return {
+        type: "CHECK_BALANCE",
+        confidence: 0.6,
+      };
+    }
+
+    // Default to unknown
+    return {
+      type: "UNKNOWN",
+      confidence: 0.1,
+    };
+  }
+
+  /**
+   * Extract amount from message
+   */
+  private extractAmount(message: string): string | null {
+    const amountMatch = message.match(/(\d+(?:\.\d+)?)/);
+    return amountMatch ? amountMatch[1] : null;
+  }
+
+  /**
+   * Extract address or basename from message
+   */
+  private extractRecipient(message: string): string | null {
+    // Look for Ethereum address
+    const addressMatch = message.match(REGEX_PATTERNS.ETHEREUM_ADDRESS);
+    if (addressMatch) {
+      return addressMatch[0];
+    }
+
+    // Look for basename
+    const basenameMatch = message.match(/([a-z0-9-]+\.basetest\.eth)/i);
+    if (basenameMatch) {
+      return basenameMatch[1];
+    }
+
+    // Look for "to [recipient]" pattern
+    const toMatch = message.match(/to\s+([^\s]+)/i);
+    if (toMatch) {
+      return toMatch[1];
+    }
+
+    return null;
+  }
+
+  /**
+   * Get intent suggestions based on partial message
+   */
+  getSuggestions(partialMessage: string): string[] {
+    const suggestions: string[] = [];
+    const message = partialMessage.toLowerCase();
+
+    if (message.includes("send") || message.includes("pay")) {
+      suggestions.push("send 100 to alice.basetest.eth");
+      suggestions.push("send 50 to 0x1234...");
+    }
+
+    if (message.includes("card")) {
+      suggestions.push("create card");
+      suggestions.push("my cards");
+      suggestions.push("check balance");
+    }
+
+    if (message.includes("balance")) {
+      suggestions.push("check balance");
+      suggestions.push("my cards");
+    }
+
+    if (suggestions.length === 0) {
+      suggestions.push("help", "create card", "check balance", "my cards");
+    }
+
+    return suggestions.slice(0, 4);
+  }
+}
