@@ -21,9 +21,9 @@ router.post("/callback", async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(
-      `Payment callback received from frontend: ${tx_ref}, status: ${status}, token: ${token}`
-    );
+    // logger.info(
+    //   `Payment callback received from frontend: ${tx_ref}, status: ${status}, token: ${token}`
+    // );
 
     // Verify transaction based on token type
     let verificationResult;

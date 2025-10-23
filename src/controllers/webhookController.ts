@@ -103,10 +103,10 @@ Type "help" when the service is restored.`
 
       const payload: WhatsAppWebhookPayload = req.body;
 
-      logger.info(
-        "Webhook payload received:",
-        JSON.stringify(payload, null, 2)
-      );
+      // logger.info(
+      //   "Webhook payload received:",
+      //   JSON.stringify(payload, null, 2)
+      // );
 
       // Process each entry
       for (const entry of payload.entry) {

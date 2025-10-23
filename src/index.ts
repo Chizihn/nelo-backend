@@ -65,19 +65,19 @@ app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
 // Request logging
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.url}`, {
-    ip: req.ip,
-    userAgent: req.get("User-Agent"),
-  });
+  // logger.info(`${req.method} ${req.url}`, {
+  //   ip: req.ip,
+  //   userAgent: req.get("User-Agent"),
+  // });
 
   // Special logging for webhook requests
   if (req.url.includes("/webhook/whatsapp")) {
-    logger.info("🔔 WEBHOOK REQUEST DETECTED!", {
-      method: req.method,
-      url: req.url,
-      headers: req.headers,
-      body: req.body,
-    });
+    // logger.info("🔔 WEBHOOK REQUEST DETECTED!", {
+    //   method: req.method,
+    //   url: req.url,
+    //   headers: req.headers,
+    //   body: req.body,
+    // });
   }
 
   next();
@@ -121,32 +121,32 @@ app.use(errorHandler);
 const PORT = env.PORT || 3000;
 
 const server = app.listen(PORT, () => {
-  logger.info(`🚀 Server running on port ${PORT}`);
-  logger.info(`📱 Environment: ${env.NODE_ENV}`);
-  logger.info(`🔗 Webhook URL: http://localhost:${PORT}/webhook/whatsapp`);
-  logger.info(`💳 Virtual Card Backend is ready!`);
+  // logger.info(`🚀 Server running on port ${PORT}`);
+  // logger.info(`📱 Environment: ${env.NODE_ENV}`);
+  // logger.info(`🔗 Webhook URL: http://localhost:${PORT}/webhook/whatsapp`);
+  // logger.info(`💳 Virtual Card Backend is ready!`);
 });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  logger.info("SIGTERM received, shutting down gracefully");
+  // logger.info("SIGTERM received, shutting down gracefully");
   server.close(() => {
-    logger.info("Process terminated");
+    // logger.info("Process terminated");
     process.exit(0);
   });
 });
 
 process.on("SIGINT", () => {
-  logger.info("SIGINT received, shutting down gracefully");
+  // logger.info("SIGINT received, shutting down gracefully");
   server.close(() => {
-    logger.info("Process terminated");
+    // logger.info("Process terminated");
     process.exit(0);
   });
 });
 
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (reason, promise) => {
-  logger.error("Unhandled Rejection at:", promise, "reason:", reason);
+  // logger.error("Unhandled Rejection at:", promise, "reason:", reason);
   process.exit(1);
 });
 
