@@ -2,17 +2,17 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { logger } from "@/utils/logger";
-import { errorHandler, notFoundHandler } from "@/middleware/errorHandler";
-import { CONSTANTS } from "@/utils/constants";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { CONSTANTS } from "./utils/constants";
 
 // Import routes
-import webhookRoutes from "@/routes/webhook.routes";
-import cardRoutes from "@/routes/card.routes";
-import userRoutes from "@/routes/user.routes";
-import transactionRoutes from "@/routes/transaction.routes";
-import paymentRoutes from "@/routes/payment.routes";
+import webhookRoutes from "./routes/webhook.routes";
+import cardRoutes from "./routes/card.routes";
+import userRoutes from "./routes/user.routes";
+import transactionRoutes from "./routes/transaction.routes";
+import paymentRoutes from "./routes/payment.routes";
 import { env } from "./config/env";
+import logger from "./utils/logger";
 
 // Create Express app
 const app = express();

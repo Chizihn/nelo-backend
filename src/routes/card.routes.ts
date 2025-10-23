@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { body, param } from "express-validator";
-import { CardController } from "@/controllers/cardController";
-import { authenticateToken } from "@/middleware/auth";
+import { CardController } from "../controllers/cardController";
+import { authenticateToken } from "../middleware/auth";
 import {
   validateRequest,
   validateUUID,
   validateAmount,
-} from "@/middleware/validation";
-import { asyncHandler } from "@/middleware/errorHandler";
+} from "../middleware/validation";
+import { asyncHandler } from "../middleware/errorHandler";
 
 const router = Router();
 const cardController = new CardController();
