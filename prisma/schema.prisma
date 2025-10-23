@@ -51,6 +51,11 @@ model User {
   sessions             Session[]
   bankAccounts         BankAccount[]
   
+  // Add indexes for frequently queried fields
+  @@index([whatsappNumber])
+  @@index([walletAddress])
+  @@index([basename])
+  @@index([privyUserId])
   @@map("users")
 }
 
@@ -78,6 +83,10 @@ model VirtualCard {
   user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions    Transaction[]
   
+  // Add indexes
+  @@index([userId])
+  @@index([mockCardId])
+  @@index([status])
   @@map("virtual_cards")
 }
 
@@ -105,6 +114,11 @@ model Transaction {
   user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   card        VirtualCard?      @relation(fields: [cardId], references: [id], onDelete: SetNull)
   
+  // Add indexes
+  @@index([userId])
+  @@index([cardId])
+  @@index([status])
+  @@index([createdAt])
   @@map("transactions")
 }
 

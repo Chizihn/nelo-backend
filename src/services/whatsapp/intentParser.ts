@@ -36,11 +36,11 @@ export class IntentParser {
       /^(all cards|view cards)/i,
     ],
 
-    // Transactions
+    // Transactions - Multi-token support
     SEND_MONEY: [
-      /^send\s+(\d+(?:\.\d+)?)\s+(?:cngn\s+)?to\s+(.+)/i,
-      /^transfer\s+(\d+(?:\.\d+)?)\s+(?:cngn\s+)?to\s+(.+)/i,
-      /^pay\s+(\d+(?:\.\d+)?)\s+(?:cngn\s+)?to\s+(.+)/i,
+      /^send\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc|usdt)\s+)?to\s+(.+)/i,
+      /^transfer\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc|usdt)\s+)?to\s+(.+)/i,
+      /^pay\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc|usdt)\s+)?to\s+(.+)/i,
     ],
 
     DEPOSIT: [
@@ -49,10 +49,21 @@ export class IntentParser {
     ],
 
     BUY_CNGN: [
-      /^(buy cngn|buy|on ramp|onramp)/i,
-      /^(buy (\d+(?:\.\d+)?)\s*(?:cngn|naira)?)/i,
-      /^(add money|fund wallet)/i,
+      /^(buy cngn|buy (\d+(?:\.\d+)?)\s*cngn)/i,
+      /^(buy naira|add naira)/i,
     ],
+
+    BUY_USDC: [
+      /^(buy usdc|buy (\d+(?:\.\d+)?)\s*usdc)/i,
+      /^(buy usd|add usd)/i,
+    ],
+
+    BUY_USDT: [
+      /^(buy usdt|buy (\d+(?:\.\d+)?)\s*usdt)/i,
+      /^(buy tether|add tether)/i,
+    ],
+
+    BUY_CRYPTO: [/^(buy|buy crypto|add money|fund wallet)/i],
 
     WITHDRAW: [
       /^(withdraw|cash out|off ramp|offramp)/i,
@@ -88,8 +99,8 @@ export class IntentParser {
     ],
 
     // KYC and verification
-    VERIFY_ID: [
-      /^(verify id|verify|kyc|identity)/i,
+    SUBMIT_KYC: [
+      /^(submit kyc|kyc|verify id|verify|identity)/i,
       /^(my name is|i am)\s+(.+)/i,
       /^(verify me|check identity)/i,
     ],
@@ -155,7 +166,8 @@ export class IntentParser {
             // Extract data for specific intents
             if (intentType === "SEND_MONEY" && match.length >= 3) {
               const amount = match[1];
-              const recipient = match[2].trim();
+              const token = match[2] || "cngn"; // Default to cngn
+              const recipient = match[3] ? match[3].trim() : match[2].trim();
 
               // Validate amount
               if (!REGEX_PATTERNS.AMOUNT.test(amount)) {
@@ -170,10 +182,11 @@ export class IntentParser {
               const processedRecipient = await this.processRecipient(recipient);
 
               intent.data = {
-                amount,
+                amount: `${amount} ${token}`,
                 recipient: processedRecipient.address || recipient,
                 recipientType: processedRecipient.type,
                 originalRecipient: recipient,
+                token: token.toLowerCase(),
               };
             }
 
@@ -204,7 +217,7 @@ export class IntentParser {
             }
 
             // Handle KYC verification
-            if (intentType === "VERIFY_ID" && match.length >= 2) {
+            if (intentType === "SUBMIT_KYC" && match.length >= 2) {
               const nameMatch = match[0].match(
                 /(?:my name is|i am)\s+([a-z\s]+?)(?:\s*,?\s*id\s*(\w+))?$/i
               );
@@ -220,6 +233,22 @@ export class IntentParser {
                   lastName,
                   idNumber,
                 };
+              }
+            }
+
+            // Handle buy USDC with amount
+            if (intentType === "BUY_USDC" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle buy USDT with amount
+            if (intentType === "BUY_USDT" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
               }
             }
 

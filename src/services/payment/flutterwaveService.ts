@@ -420,6 +420,140 @@ export class FlutterwaveService {
   }
 
   /**
+   * Generate payment link for deposits (MISSING FUNCTIONALITY - NOW ADDED)
+   */
+  async generatePaymentLink(
+    userId: string,
+    amountNGN: number,
+    userEmail: string,
+    userPhone: string
+  ): Promise<{
+    success: boolean;
+    paymentUrl?: string;
+    txRef?: string;
+    error?: string;
+  }> {
+    try {
+      const txRef = `nelo_deposit_${userId}_${Date.now()}`;
+
+      // For demo/testing, use mock credentials
+      if (
+        !this.publicKey ||
+        this.publicKey === "your_flutterwave_public_key_here"
+      ) {
+        logger.warn("Using mock Flutterwave payment link for demo");
+        return {
+          success: true,
+          paymentUrl: `https://checkout.flutterwave.com/pay?mock=true&amount=${amountNGN}&tx_ref=${txRef}`,
+          txRef,
+        };
+      }
+
+      // Build real Flutterwave payment URL
+      const paymentUrl = new URL("https://checkout.flutterwave.com/pay");
+      paymentUrl.searchParams.append("public_key", this.publicKey);
+      paymentUrl.searchParams.append("tx_ref", txRef);
+      paymentUrl.searchParams.append("amount", amountNGN.toString());
+      paymentUrl.searchParams.append("currency", "NGN");
+      paymentUrl.searchParams.append(
+        "payment_options",
+        "card,ussd,bank_transfer"
+      );
+      paymentUrl.searchParams.append("customer[email]", userEmail);
+      paymentUrl.searchParams.append("customer[phone_number]", userPhone);
+      paymentUrl.searchParams.append("customer[name]", `Nelo User ${userId}`);
+      paymentUrl.searchParams.append(
+        "customizations[title]",
+        "Nelo - Buy cNGN"
+      );
+      paymentUrl.searchParams.append(
+        "customizations[description]",
+        `Buy ${amountNGN.toLocaleString()} cNGN with NGN`
+      );
+      paymentUrl.searchParams.append(
+        "customizations[logo]",
+        "https://nelo-base.vercel.app/logo.png"
+      );
+
+      // IMPORTANT: Use your frontend URL for callback
+      paymentUrl.searchParams.append(
+        "redirect_url",
+        `https://nelo-base.vercel.app/payment/callback?tx_ref=${txRef}`
+      );
+
+      logger.info(`Payment link generated for user ${userId}: ${txRef}`);
+
+      return {
+        success: true,
+        paymentUrl: paymentUrl.toString(),
+        txRef,
+      };
+    } catch (error) {
+      logger.error("Payment link generation failed:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Payment link generation failed",
+      };
+    }
+  }
+
+  /**
+   * Verify transaction by reference
+   */
+  async verifyTransactionByRef(txRef: string): Promise<{
+    success: boolean;
+    status?: string;
+    amount?: number;
+    currency?: string;
+    error?: string;
+  }> {
+    try {
+      if (
+        !this.secretKey ||
+        this.secretKey === "your_flutterwave_secret_key_here"
+      ) {
+        // Mock verification for demo
+        logger.warn("Using mock transaction verification");
+        return {
+          success: true,
+          status: "successful",
+          amount: 1000, // Mock amount
+          currency: "NGN",
+        };
+      }
+
+      const response = await axios.get(
+        `${this.baseURL}/transactions/verify_by_reference?tx_ref=${txRef}`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.secretKey}`,
+          },
+        }
+      );
+
+      if (response.data.status === "success") {
+        return {
+          success: true,
+          status: response.data.data.status,
+          amount: response.data.data.amount,
+          currency: response.data.data.currency,
+        };
+      }
+
+      return { success: false, error: response.data.message };
+    } catch (error) {
+      logger.error("Transaction verification error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Verification failed",
+      };
+    }
+  }
+
+  /**
    * Get mock banks for demo
    */
   private getMockBanks(): Array<{

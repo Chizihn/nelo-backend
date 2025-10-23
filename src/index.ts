@@ -12,6 +12,7 @@ import webhookRoutes from "@/routes/webhook.routes";
 import cardRoutes from "@/routes/card.routes";
 import userRoutes from "@/routes/user.routes";
 import transactionRoutes from "@/routes/transaction.routes";
+import paymentRoutes from "@/routes/payment.routes";
 
 // Create Express app
 const app = express();
@@ -58,9 +59,9 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-// Body parsing middleware
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+// Body parsing middleware with security limits
+app.use(express.json({ limit: "10kb" })); // Reduced for security
+app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
 // Request logging
 app.use((req, res, next) => {
@@ -97,6 +98,7 @@ app.use("/webhook", webhookRoutes);
 app.use("/api/cards", cardRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/transactions", transactionRoutes);
+app.use("/api/payment", paymentRoutes);
 
 // Root endpoint
 app.get("/", (req, res) => {

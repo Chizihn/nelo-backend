@@ -49,12 +49,12 @@ export class WebhookController {
       logger.info("Headers:", JSON.stringify(req.headers, null, 2));
       logger.info("Body:", JSON.stringify(req.body, null, 2));
 
-      // Temporarily disable signature verification for debugging
-      // if (!this.verifySignature(req)) {
-      //   logger.error("Invalid webhook signature");
-      //   res.status(401).send("Unauthorized");
-      //   return;
-      // }
+      // Re-enable webhook signature verification for security
+      if (!this.verifySignature(req)) {
+        logger.error("Invalid webhook signature");
+        res.status(401).send("Unauthorized");
+        return;
+      }
 
       const payload: WhatsAppWebhookPayload = req.body;
 
@@ -196,9 +196,9 @@ export class WebhookController {
     try {
       const { prisma } = await import("@/config/database");
 
-      // Find the card by Bridgecard card ID
+      // Find the card by mock card ID (removed Sudo Africa references)
       const card = await prisma.virtualCard.findFirst({
-        where: { sudoCardId: transaction.card_id },
+        where: { mockCardId: transaction.card_id },
       });
 
       if (!card) {
@@ -211,10 +211,10 @@ export class WebhookController {
       // Create or update transaction record
       await prisma.transaction.upsert({
         where: {
-          sudoTransactionId: transaction.id,
+          mockTransactionId: transaction.id,
         },
         create: {
-          sudoTransactionId: transaction.id,
+          mockTransactionId: transaction.id,
           userId: card.userId,
           cardId: card.id,
           type: this.mapTransactionType(transaction.type),
@@ -256,7 +256,7 @@ export class WebhookController {
       // Find the card by Bridgecard card ID
       const { prisma } = await import("@/config/database");
       const card = await prisma.virtualCard.findFirst({
-        where: { sudoCardId: cardId },
+        where: { mockCardId: cardId },
       });
 
       if (card) {
@@ -281,7 +281,7 @@ export class WebhookController {
 
       // Find the user by card
       const card = await prisma.virtualCard.findFirst({
-        where: { sudoCardId: transaction.card_id },
+        where: { mockCardId: transaction.card_id },
         include: { user: true },
       });
 
@@ -326,7 +326,7 @@ export class WebhookController {
 
       // Find the card
       const card = await prisma.virtualCard.findFirst({
-        where: { sudoCardId: transaction.card_id },
+        where: { mockCardId: transaction.card_id },
       });
 
       if (!card) return;
@@ -358,7 +358,7 @@ export class WebhookController {
       const { prisma } = await import("@/config/database");
 
       await prisma.virtualCard.updateMany({
-        where: { sudoCardId: card.id },
+        where: { mockCardId: card.id },
         data: {
           status: this.mapCardStatus(card.status),
           metadata: {
@@ -385,7 +385,7 @@ export class WebhookController {
       const { prisma } = await import("@/config/database");
 
       const dbCard = await prisma.virtualCard.findFirst({
-        where: { sudoCardId: card.id },
+        where: { mockCardId: card.id },
         include: { user: true },
       });
 
@@ -435,7 +435,7 @@ export class WebhookController {
 
         await prisma.transaction.updateMany({
           where: {
-            card: { sudoCardId: card.id },
+            card: { mockCardId: card.id },
             status: "PENDING",
           },
           data: { status: "CANCELLED" },
@@ -454,14 +454,8 @@ export class WebhookController {
     try {
       const { prisma } = await import("@/config/database");
 
-      await prisma.user.updateMany({
-        where: { sudoCustomerId: customer.id },
-        data: {
-          metadata: {
-            bridgecardData: customer,
-          },
-        },
-      });
+      // Note: No customer ID field in User model - using metadata instead
+      logger.info(`Customer updated: ${customer.id}`);
 
       logger.info(`Customer updated in database: ${customer.id}`);
     } catch (error) {
@@ -477,29 +471,10 @@ export class WebhookController {
     try {
       const { prisma } = await import("@/config/database");
 
-      const user = await prisma.user.findFirst({
-        where: { sudoCustomerId: customer.id },
-      });
+      // Note: No customer ID field in User model - skip welcome message
+      logger.info(`Welcome message skipped for customer: ${customer.id}`);
 
-      if (!user) return;
-
-      const { WhatsAppService } = await import(
-        "@/services/whatsapp/whatsappService"
-      );
-
-      const message =
-        `🎉 *Welcome to Nelo!*\n\n` +
-        `Hi ${customer.first_name}! Your account has been successfully created.\n\n` +
-        `You can now:\n` +
-        `• Create virtual cards\n` +
-        `• Fund your cards\n` +
-        `• Make payments\n` +
-        `• Track transactions\n\n` +
-        `Type "help" to see all available commands.`;
-
-      const whatsappService = new WhatsAppService();
-      await whatsappService.sendMessage(user.whatsappNumber, message);
-      logger.info(`Welcome message sent to customer: ${customer.id}`);
+      // Welcome message functionality removed - no customer ID mapping
     } catch (error) {
       logger.error("Error sending welcome message:", error);
       throw error;

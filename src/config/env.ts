@@ -33,10 +33,7 @@ const envSchema = z.object({
   OFFRAMP_PROVIDER: z.string().default("moonpay"),
   OFFRAMP_API_KEY: z.string().optional(),
 
-  // Sudo Africa Card Issuer
-  SUDO_AFRICA_API_KEY: z.string().optional(),
-  SUDO_AFRICA_BASE_URL: z.string().url().default("https://api.sudo.africa"),
-  SUDO_AFRICA_WEBHOOK_SECRET: z.string().optional(),
+  // Removed Sudo Africa references - using mock cards only
 
   // Security
   JWT_SECRET: z.string().min(32),

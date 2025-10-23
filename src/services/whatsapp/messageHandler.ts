@@ -3,7 +3,7 @@ import { UserService } from "../user/userService";
 import { CardService } from "../card/cardService";
 import { BasenameService } from "../blockchain/basenameService";
 import { OnRampService } from "../payment/onRampService";
-import { OffRampService } from "../payment/offRampService";
+import { IntegratedOffRampService } from "../payment/integratedOffRampService";
 import { MockFiatService } from "../payment/mockFiatService";
 import { KYCService } from "../kyc/kycService";
 import { PinService } from "../security/pinService";
@@ -45,8 +45,19 @@ export class MessageHandler {
       // Get or create session
       const session = SessionManager.getOrCreateSession(user.id, message.from);
 
-      // Check for special states first
-      const messageText = message.text?.body?.trim() || "";
+      // Add input validation and sanitization
+      const messageText = (message.text?.body || "")
+        .trim()
+        .substring(0, 1000) // Limit length
+        .replace(/[<>]/g, ""); // Remove potential XSS chars
+
+      if (!messageText) {
+        await this.whatsappService.sendMessage(
+          message.from,
+          "❌ Empty message received. Please try again."
+        );
+        return;
+      }
 
       // Handle PIN verification
       if (SessionManager.isAwaitingPin(message.from)) {
@@ -210,8 +221,17 @@ export class MessageHandler {
       case "BANK_ACCOUNT":
         return await this.handleBankAccount(user!);
 
-      case "VERIFY_ID":
-        return await this.handleVerifyID(user!, data);
+      case "SUBMIT_KYC":
+        return await this.handleSubmitKYC(user!, data);
+
+      case "BUY_USDC":
+        return await this.handleBuyUSDC(user!, data);
+
+      case "BUY_USDT":
+        return await this.handleBuyUSDT(user!, data);
+
+      case "BUY_CRYPTO":
+        return await this.handleBuyCrypto(user!);
 
       case "ADD_BANK":
         return await this.handleAddBank(user!, data);
@@ -248,8 +268,12 @@ export class MessageHandler {
       let user = await UserService.findByWhatsAppNumber(whatsappNumber);
 
       if (!user) {
+        logger.info(`Creating new user for WhatsApp number: ${whatsappNumber}`);
+
         // Create new user
         user = await UserService.createUser(whatsappNumber);
+
+        logger.info(`User created successfully: ${user.id}`);
 
         // Send personalized welcome message
         const welcomeMessage = contactName
@@ -257,11 +281,20 @@ export class MessageHandler {
           : MESSAGE_TEMPLATES.WELCOME;
 
         await this.whatsappService.sendMessage(whatsappNumber, welcomeMessage);
+      } else {
+        logger.info(`Existing user found: ${user.id}`);
       }
 
       return user;
     } catch (error) {
       logger.error("Error getting/creating user:", error);
+
+      // Send user-friendly error message
+      await this.whatsappService.sendMessage(
+        whatsappNumber,
+        "❌ Sorry, there was an issue setting up your account. Please try again in a few moments. If the problem persists, contact support."
+      );
+
       throw error;
     }
   }
@@ -275,18 +308,18 @@ export class MessageHandler {
       const kycStatus = await UserService.getKYCStatus(user.id);
 
       if (!kycStatus.canCreateCard) {
-        return `🔒 *Identity Verification Required*
+        return `🔒 *KYC Required*
 
-To create a virtual card, you need to verify your identity first.
+To create a virtual card, you need to complete KYC first.
 
-Type "verify id" to start the verification process.
+Type "submit kyc" to start verification.
 
-*Why verify?*
+*Why KYC?*
 • Security and compliance
 • Higher transaction limits
 • Access to all features
 
-*It only takes 2 minutes!* ⏱️`;
+*Takes only 2 minutes!* ⏱️`;
       }
 
       // Check PIN setup
@@ -342,14 +375,38 @@ Type "verify id" to complete your verification and create your card.`;
   }
 
   /**
-   * Handle check balance intent
+   * Handle check balance intent - Multi-token support
    */
   private async handleCheckBalance(user: any): Promise<string> {
     try {
-      const balance = await CardService.getTotalBalance(user.id);
-      const cardCount = await CardService.getCardCount(user.id);
+      // Get balances for all supported tokens
+      const balances = {
+        cngn: 0,
+        usdc: 0,
+        usdt: 0,
+        cardCount: 0,
+      };
 
-      return MESSAGE_TEMPLATES.BALANCE_INFO(balance, cardCount);
+      // Get cNGN balance
+      try {
+        const { CngnService } = await import("../blockchain/cngnService");
+        const cngnBalance = await CngnService.getBalance(user.walletAddress);
+        balances.cngn = parseFloat(cngnBalance.balance);
+      } catch (error) {
+        logger.warn("Failed to get cNGN balance:", error);
+      }
+
+      // Get card count
+      balances.cardCount = await CardService.getCardCount(user.id);
+
+      // TODO: Add USDC and USDT balance fetching when contracts are deployed
+      // For now, mock some balances for demo
+      if (user.metadata?.mockBalances) {
+        balances.usdc = user.metadata.mockBalances.usdc || 0;
+        balances.usdt = user.metadata.mockBalances.usdt || 0;
+      }
+
+      return MESSAGE_TEMPLATES.BALANCE_INFO(balances);
     } catch (error) {
       logger.error("Error checking balance:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
@@ -410,18 +467,149 @@ Please specify both amount and recipient.
 "send 500 to 0x1234..."`;
       }
 
-      // Start secure transaction flow
-      const session = SessionManager.getSession(user.whatsappNumber);
-      if (session) {
-        return await FlowHandler.handleSecureTransaction(
-          user.whatsappNumber,
-          "SEND_MONEY",
-          { amount, recipient },
-          session
-        );
+      // Validate basename before transfer (Edge Case #1)
+      let recipientAddress = recipient;
+      if (recipient.includes(".base") || recipient.includes(".eth")) {
+        const resolved = await BasenameService.resolveBasename(recipient);
+        if (!resolved.isValid) {
+          return `❌ Basename "${recipient}" is not registered or invalid.`;
+        }
+        recipientAddress = resolved.address;
       }
 
-      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+      // Prevent self-transfers (Edge Case #6)
+      if (recipientAddress.toLowerCase() === user.walletAddress.toLowerCase()) {
+        return "❌ You cannot send money to yourself.";
+      }
+
+      // Determine token type from amount (default to cNGN)
+      let token = "cngn";
+      let cleanAmount = amount;
+
+      // Check if amount includes token symbol
+      if (amount.toLowerCase().includes("usdc")) {
+        token = "usdc";
+        cleanAmount = amount.replace(/usdc/i, "").trim();
+      } else if (amount.toLowerCase().includes("usdt")) {
+        token = "usdt";
+        cleanAmount = amount.replace(/usdt/i, "").trim();
+      } else if (amount.toLowerCase().includes("cngn")) {
+        token = "cngn";
+        cleanAmount = amount.replace(/cngn/i, "").trim();
+      }
+
+      // Check balance before transfer
+      try {
+        if (token === "cngn") {
+          const { CngnService } = await import("../blockchain/cngnService");
+          const balance = await CngnService.getBalance(user.walletAddress);
+          const balanceNum = parseFloat(balance.balance);
+          const amountNum = parseFloat(cleanAmount);
+
+          if (balanceNum < amountNum) {
+            return `❌ Insufficient cNGN balance. You have ${balance.balance} cNGN, need ${cleanAmount} cNGN.
+
+Buy more: "buy cngn"`;
+          }
+        } else {
+          // For USDC/USDT, check mock balances for now
+          const mockBalances = user.metadata?.mockBalances || {};
+          const tokenBalance = mockBalances[token] || 0;
+          const amountNum = parseFloat(cleanAmount);
+
+          if (tokenBalance < amountNum) {
+            return `❌ Insufficient ${token.toUpperCase()} balance. You have ${tokenBalance} ${token.toUpperCase()}, need ${cleanAmount} ${token.toUpperCase()}.
+
+Buy more: "buy ${token}"`;
+          }
+        }
+      } catch (error) {
+        logger.error("Error checking balance:", error);
+        return "❌ Unable to check balance. Please try again.";
+      }
+
+      // Check if user is confirming a previous transaction
+      const session = SessionManager.getSession(user.whatsappNumber);
+      if (session?.flowData?.awaitingTransactionConfirmation) {
+        const confirmationData = session.flowData;
+
+        if (data.toLowerCase() === "yes" || data === "1") {
+          // Proceed with transfer
+          try {
+            let transferResult;
+            const token = confirmationData.token || "cngn";
+
+            if (token === "cngn") {
+              const { CngnService } = await import("../blockchain/cngnService");
+              transferResult = await CngnService.transfer(
+                user.encryptedPrivateKey!,
+                confirmationData.recipientAddress,
+                confirmationData.amount
+              );
+            } else {
+              // For USDC/USDT, mock the transfer for now
+              transferResult = {
+                success: true,
+                txHash: `0x${Math.random().toString(16).substring(2, 66)}`,
+              };
+
+              // Update mock balances
+              const mockBalances = user.metadata?.mockBalances || {};
+              mockBalances[token] =
+                (mockBalances[token] || 0) -
+                parseFloat(confirmationData.amount);
+
+              await UserService.updateUserMetadata(user.id, {
+                ...user.metadata,
+                mockBalances,
+              });
+            }
+
+            SessionManager.completeFlow(user.whatsappNumber);
+
+            if (transferResult.success) {
+              return MESSAGE_TEMPLATES.TRANSACTION_SUCCESS(
+                confirmationData.amount,
+                token,
+                confirmationData.recipient,
+                transferResult.txHash!
+              );
+            } else {
+              return `❌ Transfer failed: ${transferResult.error}`;
+            }
+          } catch (transferError) {
+            logger.error("Transfer execution failed:", transferError);
+            SessionManager.completeFlow(user.whatsappNumber);
+            return "❌ Transfer failed. Please try again.";
+          }
+        } else if (data.toLowerCase() === "no" || data === "2") {
+          SessionManager.completeFlow(user.whatsappNumber);
+          return "❌ Transfer cancelled.";
+        } else {
+          return "❌ Please reply with:\n1️⃣ Yes, send\n2️⃣ No, cancel";
+        }
+      }
+
+      // Ask for confirmation before proceeding
+      SessionManager.updateSession(user.whatsappNumber, {
+        flowData: {
+          awaitingTransactionConfirmation: true,
+          recipient,
+          recipientAddress,
+          amount: cleanAmount,
+          token,
+        },
+      });
+
+      return `⚠️ *Confirm Transfer*
+
+To: ${recipient}
+Address: ${recipientAddress.slice(0, 6)}...${recipientAddress.slice(-4)}
+Amount: ${cleanAmount} ${token.toUpperCase()}
+
+Reply:
+1️⃣ Yes, send
+2️⃣ No, cancel`;
     } catch (error) {
       logger.error("Error sending money:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
@@ -629,16 +817,30 @@ Register at: https://www.base.org/names`;
   private async handleBuyCngn(user: any, data: any): Promise<string> {
     try {
       const amount = data?.amount || "10000"; // Default 10,000 NGN
+      const amountNum = parseFloat(amount);
 
-      const result = await MockFiatService.initiateFiatToCNGN({
+      // Validate amount
+      if (amountNum < 100) {
+        return "❌ Minimum deposit is ₦100";
+      }
+
+      if (amountNum > 1000000) {
+        return "❌ Maximum deposit is ₦1,000,000";
+      }
+
+      // Use IntegratedOnRampService for complete flow
+      const { IntegratedOnRampService } = await import(
+        "../payment/integratedOnRampService"
+      );
+
+      const result = await IntegratedOnRampService.depositNGN({
         userId: user.id,
-        amount: parseFloat(amount),
+        amountNGN: amountNum,
         paymentMethod: "BANK_TRANSFER",
-        virtualAccountNumber: user.virtualAccountNumber,
       });
 
       if (result.success) {
-        return `💰 *Buy ${amount} cNGN*
+        return `💰 *Buy ${amountNum.toLocaleString()} cNGN*
 
 ${result.paymentInstructions}
 
@@ -646,7 +848,7 @@ ${result.paymentInstructions}
 Reply "paid ${amount}" to confirm
 
 *You'll receive:*
-${amount} cNGN in your wallet
+${amountNum.toLocaleString()} cNGN in your wallet
 
 *Rate:* 1 NGN = 1 cNGN
 *No fees!* 🎉
@@ -680,7 +882,9 @@ Need to add your bank account? Type "bank account"`;
       }
 
       const amount = data.amount;
-      const fees = OffRampService.calculateOffRampFee(amount);
+      const fees = IntegratedOffRampService.calculateWithdrawalFee(
+        parseFloat(amount)
+      );
 
       return `💸 *Withdraw ${amount} cNGN*
 
@@ -707,10 +911,10 @@ Type "bank account" to add your details, then try withdrawing again.
    */
   private async handleBankAccount(user: any): Promise<string> {
     try {
-      const banks = await OffRampService.getSupportedBanks();
+      const banks = await IntegratedOffRampService.getSupportedBanks();
       const bankList = banks
         .slice(0, 10)
-        .map((bank, index) => `${index + 1}. ${bank.name}`)
+        .map((bank: any, index: number) => `${index + 1}. ${bank.name}`)
         .join("\n");
 
       return `🏦 *Add Bank Account*
@@ -739,22 +943,22 @@ Once added, you can withdraw with:
   }
 
   /**
-   * Enhanced verify ID to start KYC flow
+   * Handle Submit KYC - Updated name and flow
    */
-  private async handleVerifyID(user: any, data: any): Promise<string> {
+  private async handleSubmitKYC(user: any, data: any): Promise<string> {
     try {
       const kycStatus = await UserService.getKYCStatus(user.id);
 
       if (kycStatus.verified) {
-        return `✅ *Already Verified*
+        return `✅ *KYC Already Completed*
 
 Your identity is already verified!
-KYC Level: ${kycStatus.level}
+Status: ${kycStatus.level}
 
 You can now:
 • Create virtual cards: "create card"
-• Make transactions: "send money"
-• Access all features: "help"
+• Buy crypto: "buy cngn"
+• Send money: "send [amount] to [address]"
 
 ${
   (await PinService.hasPinSetup(user.id))
@@ -766,22 +970,134 @@ ${
       // Start KYC flow
       SessionManager.startFlow(user.whatsappNumber, "KYC_VERIFICATION");
 
-      return `🆔 *Identity Verification*
+      return `🆔 *Submit KYC - Identity Verification*
 
-To comply with regulations and secure your account, we need to verify your identity.
-
-*Required Information:*
-• Full name
-• ID number (optional for demo)
+To comply with regulations and secure your account, I need to verify your identity.
 
 *Benefits after verification:*
 ✅ Create virtual cards
-✅ Higher transaction limits
-✅ Full access to features
+✅ Higher transaction limits  
+✅ Buy/sell crypto
+✅ Send money globally
 
-Please enter your *first name*:`;
+Please enter your *full name* (First Last):
+Example: "John Doe"`;
     } catch (error) {
       logger.error("Error handling KYC verification:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
+  }
+
+  /**
+   * Handle Buy USDC
+   */
+  private async handleBuyUSDC(user: any, data: any): Promise<string> {
+    try {
+      const amount = data?.amount || "100"; // Default $100
+      const amountNum = parseFloat(amount);
+
+      // Validate amount
+      if (amountNum < 10) {
+        return "❌ Minimum purchase is $10 USDC";
+      }
+
+      if (amountNum > 10000) {
+        return "❌ Maximum purchase is $10,000 USDC";
+      }
+
+      return `💵 *Buy ${amountNum} USDC*
+
+💰 Cost: $${amountNum} USD
+🪙 You'll receive: ${amountNum} USDC
+⚡ Network: Base
+🔗 Rate: 1 USD = 1 USDC
+
+*Payment Methods:*
+1️⃣ Credit/Debit Card
+2️⃣ Bank Transfer
+3️⃣ Apple Pay / Google Pay
+
+Reply with your choice (1, 2, or 3):
+
+*What is USDC?*
+USD Coin - A stable cryptocurrency backed 1:1 by US Dollars. Perfect for international transactions and DeFi.`;
+    } catch (error) {
+      logger.error("Error handling buy USDC:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
+  }
+
+  /**
+   * Handle Buy USDT
+   */
+  private async handleBuyUSDT(user: any, data: any): Promise<string> {
+    try {
+      const amount = data?.amount || "100"; // Default $100
+      const amountNum = parseFloat(amount);
+
+      // Validate amount
+      if (amountNum < 10) {
+        return "❌ Minimum purchase is $10 USDT";
+      }
+
+      if (amountNum > 10000) {
+        return "❌ Maximum purchase is $10,000 USDT";
+      }
+
+      return `💰 *Buy ${amountNum} USDT*
+
+💰 Cost: $${amountNum} USD
+🪙 You'll receive: ${amountNum} USDT
+⚡ Network: Base
+🔗 Rate: 1 USD = 1 USDT
+
+*Payment Methods:*
+1️⃣ Credit/Debit Card
+2️⃣ Bank Transfer
+3️⃣ Apple Pay / Google Pay
+
+Reply with your choice (1, 2, or 3):
+
+*What is USDT?*
+Tether - The world's most popular stablecoin, backed by US Dollars. Widely accepted and highly liquid.`;
+    } catch (error) {
+      logger.error("Error handling buy USDT:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
+  }
+
+  /**
+   * Handle Buy Crypto - Show options
+   */
+  private async handleBuyCrypto(user: any): Promise<string> {
+    try {
+      return `💰 *Buy Crypto*
+
+Choose your cryptocurrency:
+
+🇳🇬 *cNGN (Nigerian Naira)*
+• Pay with: Bank transfer, Card
+• Best for: Nigerian users
+• Command: "buy cngn"
+
+💵 *USDC (USD Coin)*  
+• Pay with: Card, Bank transfer
+• Best for: International users
+• Command: "buy usdc"
+
+💰 *USDT (Tether)*
+• Pay with: Card, Bank transfer  
+• Best for: Trading, DeFi
+• Command: "buy usdt"
+
+*Quick Start:*
+• "buy cngn" - For Nigerians
+• "buy usdc" - For USD users
+• "buy usdt" - For traders
+
+*New to crypto?* Start with cNGN if you're in Nigeria, or USDC for international use.`;
+    } catch (error) {
+      logger.error("Error handling buy crypto:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
     }
   }
@@ -795,7 +1111,7 @@ Please enter your *first name*:`;
         const banks = await flutterwaveService.getSupportedBanks();
         const bankList = banks
           .slice(0, 8)
-          .map((bank, index) => `${index + 1}. ${bank.name}`)
+          .map((bank: any, index: number) => `${index + 1}. ${bank.name}`)
           .join("\n");
 
         return `🏦 *Add Bank Account*
@@ -936,22 +1252,60 @@ Type "verify id" to upgrade your account.`;
 "add bank GTB 0123456789 John Doe"`;
       }
 
-      // Start secure transaction flow
+      // Use IntegratedOffRampService for complete withdrawal flow
+      const { IntegratedOffRampService } = await import(
+        "../payment/integratedOffRampService"
+      );
+
+      const feeCalculation =
+        IntegratedOffRampService.calculateWithdrawalFee(amount);
+
+      // Ask for confirmation
       const session = SessionManager.getSession(user.whatsappNumber);
-      if (session) {
-        return await FlowHandler.handleSecureTransaction(
-          user.whatsappNumber,
-          "CASH_OUT",
-          {
-            amount,
-            bankAccountId: bankAccounts[0].id,
-            bankName: bankAccounts[0].bankName,
-          },
-          session
-        );
+      if (session?.flowData?.awaitingWithdrawalConfirmation) {
+        const confirmationData = session.flowData;
+
+        if (data.toLowerCase() === "yes" || data === "1") {
+          // Proceed with withdrawal
+          const result = await IntegratedOffRampService.withdrawCNGN({
+            userId: user.id,
+            amountCNGN: confirmationData.amount,
+            bankAccountId: confirmationData.bankAccountId,
+          });
+
+          SessionManager.completeFlow(user.whatsappNumber);
+
+          if (result.success) {
+            return `✅ *Withdrawal Initiated!*\n\nAmount: ${confirmationData.amount.toLocaleString()} cNGN\nFee: ${feeCalculation.fee.toLocaleString()} NGN\nYou'll receive: ₦${result.netAmount?.toLocaleString()}\n\nReference: ${
+              result.withdrawalReference
+            }\nEstimated time: ${result.estimatedTime}`;
+          } else {
+            return `❌ Withdrawal failed: ${result.error}`;
+          }
+        } else if (data.toLowerCase() === "no" || data === "2") {
+          SessionManager.completeFlow(user.whatsappNumber);
+          return "❌ Withdrawal cancelled.";
+        } else {
+          return "❌ Please reply with:\n1️⃣ Yes, withdraw\n2️⃣ No, cancel";
+        }
       }
 
-      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+      // Ask for confirmation
+      SessionManager.updateSession(user.whatsappNumber, {
+        flowData: {
+          awaitingWithdrawalConfirmation: true,
+          amount,
+          bankAccountId: bankAccounts[0].id,
+        },
+      });
+
+      return `⚠️ *Confirm Withdrawal*\n\nAmount: ${amount.toLocaleString()} cNGN\nFee: ${feeCalculation.fee.toLocaleString()} NGN (${
+        feeCalculation.feePercentage * 100
+      }%)\nYou'll receive: ₦${feeCalculation.netAmount.toLocaleString()}\nBank: ${
+        bankAccounts[0].bankName
+      }\nAccount: ${
+        bankAccounts[0].accountNumber
+      }\n\nReply:\n1️⃣ Yes, withdraw\n2️⃣ No, cancel`;
     } catch (error) {
       logger.error("Error handling cash out:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
@@ -1062,7 +1416,14 @@ Try "buy ${amount}" to start a new purchase.`;
         return `❌ Invalid payment reference. Please try again.`;
       }
 
-      const result = await MockFiatService.confirmFiatPayment(paymentReference);
+      // Use IntegratedOnRampService to confirm and mint cNGN
+      const { IntegratedOnRampService } = await import(
+        "../payment/integratedOnRampService"
+      );
+
+      const result = await IntegratedOnRampService.confirmPaymentAndMintCNGN(
+        paymentReference
+      );
 
       if (result.success) {
         return `🎉 *Payment Confirmed!*

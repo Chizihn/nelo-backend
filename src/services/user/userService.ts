@@ -33,15 +33,24 @@ export class UserService {
       );
 
       if (!privyResult.success || !privyResult.user) {
-        throw new Error(`Failed to create Privy wallet: ${privyResult.error}`);
+        throw new Error(`Failed to create Privy user: ${privyResult.error}`);
       }
 
       const privyUser = privyResult.user;
       const walletAddress = privyUser.wallet?.address;
 
       if (!walletAddress) {
+        logger.error("No wallet address from Privy user creation", {
+          privyUserId: privyUser.id,
+          privyUser: JSON.stringify(privyUser, null, 2),
+          privyResult: JSON.stringify(privyResult, null, 2),
+        });
         throw new Error("Failed to get wallet address from Privy");
       }
+
+      logger.info(
+        `Successfully got wallet address from Privy: ${walletAddress}`
+      );
 
       // Generate fallback wallet for demo purposes (in case Privy fails)
       let fallbackWallet = null;
@@ -59,6 +68,10 @@ export class UserService {
       }
 
       // Create user with Privy integration
+      logger.info(
+        `Creating user in database with wallet address: ${walletAddress}`
+      );
+
       const user = await prisma.user.create({
         data: {
           whatsappNumber,
@@ -74,6 +87,8 @@ export class UserService {
           },
         },
       });
+
+      logger.info(`User created successfully in database: ${user.id}`);
 
       // Create virtual bank account for fiat on/off ramp
       try {
@@ -125,6 +140,37 @@ export class UserService {
     } catch (error) {
       logger.error("Error creating user:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Find user by ID
+   */
+  static async getUserById(userId: string): Promise<any | null> {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          whatsappNumber: true,
+          walletAddress: true,
+          basename: true,
+          basenameVerified: true,
+          isActive: true,
+          kycLevel: true,
+          kycVerified: true,
+          virtualAccountNumber: true,
+          virtualBankName: true,
+          encryptedPrivateKey: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return user;
+    } catch (error) {
+      logger.error("Error finding user by ID:", error);
+      return null;
     }
   }
 
@@ -612,6 +658,27 @@ export class UserService {
     } catch (error) {
       logger.error("Error getting bank accounts:", error);
       return [];
+    }
+  }
+
+  /**
+   * Update user metadata
+   */
+  static async updateUserMetadata(
+    userId: string,
+    metadata: any
+  ): Promise<boolean> {
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { metadata },
+      });
+
+      logger.info(`User metadata updated: ${userId}`);
+      return true;
+    } catch (error) {
+      logger.error("Error updating user metadata:", error);
+      return false;
     }
   }
 

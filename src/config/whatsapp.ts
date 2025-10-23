@@ -15,102 +15,168 @@ export const WHATSAPP_ENDPOINTS = {
   media: `${WHATSAPP_CONFIG.baseUrl}/${WHATSAPP_CONFIG.apiVersion}/${WHATSAPP_CONFIG.phoneNumberId}/media`,
 } as const;
 
-// Message templates
+// Updated Message templates with better UX
 export const MESSAGE_TEMPLATES = {
   WELCOME: `🎉 *Welcome to Nelo!*
 
 Your Web3 financial assistant for Nigeria 🇳🇬
 
-I help you manage virtual cards and cNGN on Base blockchain through WhatsApp - no app needed!
+I help you manage virtual cards and crypto through WhatsApp - no app needed!
 
-*🚀 Quick Start:*
-1. Verify your identity: "verify id"
-2. Set up security PIN: "setup pin"  
-3. Create your card: "create card"
-4. Buy cNGN: "buy 10000"
+*🚀 Quick Start (2 minutes):*
+1. Submit KYC: "submit kyc"
+2. Set security PIN: "setup pin"  
+3. Create virtual card: "create card"
+4. Buy crypto: "buy cngn"
 
 *💡 New to crypto?*
-Don't worry! I'll guide you step by step.
+Perfect! I'll guide you step by step.
 
-Type "verify id" to begin! ✨`,
+Type "submit kyc" to begin! ✨`,
 
   PERSONALIZED_WELCOME: (name: string) => `🎉 *Hey ${name}! Welcome to Nelo!*
 
 Your personal Web3 financial assistant 🇳🇬
 
-I help you manage virtual cards and cNGN on Base blockchain - all through WhatsApp!
+I help you manage virtual cards and crypto - all through WhatsApp!
 
-*🚀 Let's get you started:*
-1. Verify your identity: "verify id"
-2. Set up security PIN: "setup pin"
-3. Create your card: "create card"
+*🚀 Let's get you started (2 minutes):*
+1. Submit KYC: "submit kyc"
+2. Set security PIN: "setup pin"
+3. Create virtual card: "create card"
 4. Start using crypto: "buy cngn"
 
 *💡 First time with crypto?*
 Perfect! I'll make it super easy.
 
-Ready? Type "verify id" to begin! ✨`,
+Ready? Type "submit kyc" to begin! ✨`,
 
   HELP: `🤖 *Nelo - Your Web3 Money Assistant*
 
-🆔 *Getting Started:*
-• verify id - Complete identity verification
+*🆔 Getting Started:*
+• submit kyc - Complete identity verification
+• setup pin - Set your security PIN
 • create card - Get your virtual card
 
-💳 *Card & Balance:*
-• balance - Check your cNGN balance
-• my cards - View all your cards
+*💰 Buy Crypto:*
+• buy cngn - Buy Nigerian Naira token
+• buy usdc - Buy USD Coin  
+• buy usdt - Buy Tether
+• paid [amount] - Confirm payment
 
-💰 *Buy & Sell cNGN:*
-• buy 10000 - Buy cNGN with bank transfer
-• paid 10000 - Confirm your payment
-• cash out 5000 - Withdraw to your bank
+*💳 Cards & Balance:*
+• balance - Check all your crypto
+• my cards - View virtual cards
 
-🏦 *Banking:*
-• add bank GTB 0123456789 John Doe
+*💸 Send Money:*
+• send 1000 cngn to alice.base.eth
+• send 50 usdc to 0x1234...
+
+*🏦 Banking:*
+• add bank - Link your bank account
+• cash out 5000 - Withdraw to bank
 • my banks - View saved accounts
 
-💸 *Send Money:*
-• send 1000 to alice.base.eth
-• send 500 to 0x1234...
-
-📊 *History & Profile:*
+*📊 Account:*
 • history - Recent transactions
 • profile - Your account info
 
-*New to crypto?* Start with "verify id" then "create card"! 🚀`,
+*🔐 Security:*
+• setup pin - Create security PIN
+• reset pin - Change your PIN
+
+*New to crypto?* Start with "submit kyc" then "create card"! 🚀`,
+
+  BALANCE_INFO: (balances: any) => {
+    let message = `💰 *Your Portfolio*\n\n`;
+
+    if (balances.cngn > 0) {
+      message += `🇳🇬 cNGN: ${balances.cngn} (₦${balances.cngn})\n`;
+    }
+    if (balances.usdc > 0) {
+      message += `💵 USDC: ${balances.usdc} ($${balances.usdc})\n`;
+    }
+    if (balances.usdt > 0) {
+      message += `💰 USDT: ${balances.usdt} ($${balances.usdt})\n`;
+    }
+
+    if (balances.cngn === 0 && balances.usdc === 0 && balances.usdt === 0) {
+      message += `No crypto yet. Start with:\n• "buy cngn" for Nigerian Naira\n• "buy usdc" for US Dollar\n• "buy usdt" for Tether`;
+    } else {
+      message += `\n💳 Active Cards: ${balances.cardCount}\n\nType "my cards" to see card balances.`;
+    }
+
+    return message;
+  },
 
   CARD_CREATED: (cardNumber: string, address: string) =>
-    `✅ *Card Created Successfully!*
+    `✅ *Virtual Card Created!*
 
-🎴 Card Number: \`${cardNumber}\`
-💳 Wallet: \`${address}\`
-💰 Balance: 0 cNGN
+🎴 Card: ****${cardNumber.slice(-4)}
+💳 Wallet: ${address.slice(0, 6)}...${address.slice(-4)}
+💰 Balance: 0 (empty)
 
-Your virtual card is ready! You can now deposit cNGN and start using it.
+*Next Steps:*
+• Fund card: "buy cngn"
+• Check balance: "balance"
+• Send money: "send [amount] to [address]"
 
-Type *deposit* to add funds.`,
+Your card is ready! 🚀`,
 
-  BALANCE_INFO: (balance: string, cardCount: number) =>
-    `💰 *Your Balance*
+  TRANSACTION_SUCCESS: (
+    amount: string,
+    token: string,
+    recipient: string,
+    txHash: string
+  ) =>
+    `✅ *Transfer Successful!*
 
-Total cNGN: *${balance}*
-Active Cards: *${cardCount}*
+💸 Sent: ${amount} ${token.toUpperCase()}
+📍 To: ${recipient.slice(0, 10)}...
+🔗 TX: ${txHash.slice(0, 10)}...
 
-Type *my cards* to see individual card balances.`,
+View on Base: https://sepolia.basescan.org/tx/${txHash}
 
-  TRANSACTION_SUCCESS: (amount: string, recipient: string, txHash: string) =>
-    `✅ *Transaction Successful*
+Type "balance" to check updated balance.`,
 
-💸 Sent: *${amount} cNGN*
-📍 To: \`${recipient}\`
-🔗 TX: \`${txHash}\`
+  ERROR_GENERIC: `❌ Something went wrong. Please try again or type "help" for assistance.`,
 
-View on Base Sepolia: https://sepolia.basescan.org/tx/${txHash}`,
+  ERROR_INSUFFICIENT_BALANCE: (token: string) =>
+    `❌ Insufficient ${token.toUpperCase()} balance. Buy more with "buy ${token.toLowerCase()}"`,
 
-  ERROR_GENERIC: `❌ Something went wrong. Please try again or contact support.`,
+  ERROR_INVALID_COMMAND: `❓ I didn't understand that. Type "help" to see all commands.`,
 
-  ERROR_INSUFFICIENT_BALANCE: `❌ Insufficient balance. Please deposit more cNGN first.`,
+  KYC_COMPLETE: (
+    firstName: string,
+    lastName: string
+  ) => `🎉 *KYC Submitted Successfully!*
 
-  ERROR_INVALID_COMMAND: `❓ I didn't understand that command. Type *help* to see available options.`,
+✅ Name: ${firstName} ${lastName}
+✅ Status: Verified
+✅ Level: Basic
+
+*Your new limits:*
+💰 Daily: ₦100,000
+📅 Monthly: ₦1,000,000
+💳 Cards: 3 cards
+
+*Next Steps:*
+• Set security PIN: "setup pin"
+• Create virtual card: "create card"
+• Buy crypto: "buy cngn"
+
+Welcome to Nelo! 🚀`,
+
+  PIN_SETUP_COMPLETE: `🎉 *Security PIN Set Successfully!*
+
+✅ Your account is now secure
+✅ PIN required for all transactions
+✅ Security question configured
+
+*You can now:*
+• Create virtual cards: "create card"
+• Buy crypto: "buy cngn"
+• Send money: "send [amount] to [address]"
+
+Type "create card" to get started! 🚀`,
 } as const;

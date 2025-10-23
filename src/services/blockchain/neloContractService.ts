@@ -26,6 +26,27 @@ export class NeloContractService {
   }
 
   /**
+   * Add retry logic for blockchain calls (Issue #14)
+   */
+  private static async retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+    delayMs: number = 1000
+  ): Promise<T> {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === maxRetries - 1) throw error;
+        logger.warn(`Retry ${i + 1}/${maxRetries} after ${delayMs}ms`, error);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        delayMs *= 2; // Exponential backoff
+      }
+    }
+    throw new Error("Max retries exceeded");
+  }
+
+  /**
    * Deposit cNGN tokens to Nelo custody contract
    */
   static async depositTokens(
@@ -45,7 +66,26 @@ export class NeloContractService {
 
       logger.info(`Nelo deposit initiated: ${tx.hash}`);
 
-      const receipt = await tx.wait(CONSTANTS.CONFIRMATION_BLOCKS);
+      // Add timeout and retry logic for transaction confirmation
+      const receipt = await this.retryWithBackoff(() =>
+        Promise.race([
+          tx.wait(CONSTANTS.CONFIRMATION_BLOCKS),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Transaction confirmation timeout")),
+              60000
+            )
+          ),
+        ])
+      );
+
+      if (!receipt) {
+        throw new Error("Transaction failed - no receipt received");
+      }
+
+      if (receipt.status === 0) {
+        throw new Error("Transaction reverted on-chain");
+      }
 
       return {
         success: true,
@@ -82,7 +122,24 @@ export class NeloContractService {
 
       logger.info(`Nelo withdrawal initiated: ${tx.hash}`);
 
-      const receipt = await tx.wait(CONSTANTS.CONFIRMATION_BLOCKS);
+      // Add timeout and null check for transaction confirmation
+      const receipt = await Promise.race([
+        tx.wait(CONSTANTS.CONFIRMATION_BLOCKS),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Transaction confirmation timeout")),
+            60000
+          )
+        ),
+      ]);
+
+      if (!receipt) {
+        throw new Error("Transaction failed - no receipt received");
+      }
+
+      if (receipt.status === 0) {
+        throw new Error("Transaction reverted on-chain");
+      }
 
       return {
         success: true,
@@ -144,7 +201,24 @@ export class NeloContractService {
 
       logger.info(`Nelo custodian transfer initiated: ${tx.hash}`);
 
-      const receipt = await tx.wait(CONSTANTS.CONFIRMATION_BLOCKS);
+      // Add timeout and null check for transaction confirmation
+      const receipt = await Promise.race([
+        tx.wait(CONSTANTS.CONFIRMATION_BLOCKS),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Transaction confirmation timeout")),
+            60000
+          )
+        ),
+      ]);
+
+      if (!receipt) {
+        throw new Error("Transaction failed - no receipt received");
+      }
+
+      if (receipt.status === 0) {
+        throw new Error("Transaction reverted on-chain");
+      }
 
       return {
         success: true,

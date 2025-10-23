@@ -26,6 +26,7 @@ export class BasenameService {
    */
   static async resolveBasename(basename: string): Promise<BasenameInfo> {
     try {
+      // Add null check before calling resolver
       if (!this.isValidBasename(basename)) {
         return {
           name: basename,
@@ -38,15 +39,22 @@ export class BasenameService {
 
       // Convert basename to namehash
       const node = ethers.namehash(basename);
-      const address = await resolver.addr(node); // Updated to use correct ENS function
 
-      // Check if address is valid (not zero address)
-      const isValid = address !== ethers.ZeroAddress;
+      // Add null check for address
+      const address = await resolver.addr(node);
+
+      if (!address || address === ethers.ZeroAddress) {
+        return {
+          name: basename,
+          address: "",
+          isValid: false,
+        };
+      }
 
       return {
         name: basename,
-        address: isValid ? address : "",
-        isValid,
+        address: address,
+        isValid: true,
       };
     } catch (error) {
       logger.error("Failed to resolve basename:", error);

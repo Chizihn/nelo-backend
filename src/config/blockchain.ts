@@ -19,8 +19,10 @@ if (!env.DEPLOYER_PRIVATE_KEY)
   throw new Error("DEPLOYER_PRIVATE_KEY is not set");
 if (!env.NELO_CUSTODY_CONTRACT_ADDRESS)
   throw new Error("NELO_CUSTODY_CONTRACT_ADDRESS is not set");
-// if (!env.CNGN_TOKEN_ADDRESS) throw new Error("CNGN_TOKEN_ADDRESS is not set");
+if (!env.CNGN_TOKEN_ADDRESS) throw new Error("CNGN_TOKEN_ADDRESS is not set");
 if (!env.L2_RESOLVER_ADDRESS) throw new Error("L2_RESOLVER_ADDRESS is not set");
+if (!env.DEPLOYER_PRIVATE_KEY)
+  throw new Error("DEPLOYER_PRIVATE_KEY is not set");
 if (env.L2_RESOLVER_ADDRESS !== "0xC6d566A56A1aFf6508b41f6c90ff131615583BCD") {
   console.warn(
     "L2_RESOLVER_ADDRESS should be 0xC6d566A56A1aFf6508b41f6c90ff131615583BCD for Basename on Base Sepolia"
@@ -29,8 +31,16 @@ if (env.L2_RESOLVER_ADDRESS !== "0xC6d566A56A1aFf6508b41f6c90ff131615583BCD") {
 if (env.BASE_CHAIN_ID !== "84532")
   throw new Error("BASE_CHAIN_ID must be 84532 for Base Sepolia");
 
-// Base Sepolia Provider
-export const provider = new ethers.JsonRpcProvider(env.BASE_RPC_URL);
+// Base Sepolia Provider with fallback (Edge Case #5)
+const primaryProvider = new ethers.JsonRpcProvider(env.BASE_RPC_URL);
+const fallbackProvider = new ethers.JsonRpcProvider(
+  "https://sepolia.base.org" // Public RPC fallback
+);
+
+export const provider = new ethers.FallbackProvider([
+  { provider: primaryProvider, weight: 1 },
+  { provider: fallbackProvider, weight: 1 },
+]);
 
 // Deployer wallet
 export const deployerWallet = new ethers.Wallet(

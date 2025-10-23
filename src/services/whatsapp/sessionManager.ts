@@ -11,6 +11,7 @@ export interface UserSession {
   awaitingPin?: boolean;
   awaitingSecurityAnswer?: boolean;
   pendingTransaction?: any;
+  expiresAt: number; // Add explicit expiry timestamp
 }
 
 export class SessionManager {
@@ -32,12 +33,30 @@ export class SessionManager {
         whatsappNumber,
         lastActivity: new Date(),
         messageCount: 0,
+        expiresAt: Date.now() + this.SESSION_TIMEOUT,
       };
       this.sessions.set(whatsappNumber, session);
       logger.info(`New session created for user: ${whatsappNumber}`);
     } else {
-      session.lastActivity = new Date();
-      session.messageCount++;
+      // Check if expired (Edge Case #8)
+      if (session.expiresAt < Date.now()) {
+        this.sessions.delete(whatsappNumber);
+        // Create new session
+        session = {
+          userId,
+          whatsappNumber,
+          lastActivity: new Date(),
+          messageCount: 0,
+          expiresAt: Date.now() + this.SESSION_TIMEOUT,
+        };
+        this.sessions.set(whatsappNumber, session);
+        logger.info(`Expired session replaced for user: ${whatsappNumber}`);
+      } else {
+        // Extend expiry
+        session.lastActivity = new Date();
+        session.messageCount++;
+        session.expiresAt = Date.now() + this.SESSION_TIMEOUT;
+      }
     }
 
     return session;
@@ -189,11 +208,12 @@ export class SessionManager {
       if (now - session.lastActivity.getTime() > this.SESSION_TIMEOUT) {
         this.sessions.delete(whatsappNumber);
         cleanedCount++;
+        logger.info(`Cleaned up expired session: ${whatsappNumber}`);
       }
     }
 
     if (cleanedCount > 0) {
-      logger.info(`Cleaned up ${cleanedCount} expired sessions`);
+      logger.info(`Cleaned up ${cleanedCount} expired sessions total`);
     }
   }
 

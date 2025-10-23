@@ -12,25 +12,19 @@ import { logger } from "@/utils/logger";
 import { CONSTANTS } from "@/utils/constants";
 
 export class CngnService {
-  // cNGN Contract addresses on different networks
-  private static readonly CNGN_ADDRESSES = {
-    // Base Mainnet
-    8453: "0x", // TODO: Add actual Base mainnet cNGN address when available
-    // Base Sepolia Testnet
-    84532: "0x", // TODO: Add actual Base Sepolia cNGN address when available
-  };
-
   private static getContract(
     signerOrProvider?: ethers.Signer | ethers.Provider
   ) {
-    // Use configured address or fallback to known addresses
-    const contractAddress =
-      CONTRACT_ADDRESSES.CNGN_TOKEN ||
-      this.CNGN_ADDRESSES[parseInt(CHAIN_CONFIG.chainId) as 8453 | 84532];
+    // Use environment variable for cNGN address
+    const contractAddress = CONTRACT_ADDRESSES.CNGN_TOKEN;
 
-    if (!contractAddress || contractAddress === "0x") {
+    if (
+      !contractAddress ||
+      contractAddress === "0x" ||
+      !contractAddress.startsWith("0x")
+    ) {
       throw new Error(
-        `cNGN token contract address not configured for chain ${CHAIN_CONFIG.chainId}`
+        `cNGN token contract address not configured. Set CNGN_TOKEN_ADDRESS env var.`
       );
     }
 
@@ -98,8 +92,24 @@ export class CngnService {
 
       logger.info(`cNGN transfer initiated: ${tx.hash}`);
 
-      // Wait for confirmation
-      const receipt = await tx.wait(CONSTANTS.CONFIRMATION_BLOCKS);
+      // Add timeout and null check
+      const receipt = await Promise.race([
+        tx.wait(CONSTANTS.CONFIRMATION_BLOCKS),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Transaction confirmation timeout")),
+            60000
+          )
+        ),
+      ]);
+
+      if (!receipt) {
+        throw new Error("Transaction failed - no receipt");
+      }
+
+      if (receipt.status === 0) {
+        throw new Error("Transaction reverted");
+      }
 
       return {
         success: true,

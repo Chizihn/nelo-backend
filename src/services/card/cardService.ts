@@ -37,18 +37,26 @@ export class CardService {
     error?: string;
   }> {
     try {
-      // Check KYC status first
-      const { KYCService } = await import("../kyc/kycService");
-      const kycPermission = await KYCService.canPerformAction(
-        userId,
-        "CREATE_CARD"
-      );
+      // Add try-catch for KYC check
+      try {
+        const { KYCService } = await import("../kyc/kycService");
+        const kycPermission = await KYCService.canPerformAction(
+          userId,
+          "CREATE_CARD"
+        );
 
-      if (!kycPermission.allowed) {
-        return {
-          success: false,
-          error: `KYC verification required: ${kycPermission.reason}`,
-        };
+        if (!kycPermission.allowed) {
+          return {
+            success: false,
+            error: `KYC verification required: ${kycPermission.reason}`,
+          };
+        }
+      } catch (kycError) {
+        logger.warn(
+          "KYC check failed, proceeding with card creation:",
+          kycError
+        );
+        // Allow creation to proceed if KYC service is down
       }
 
       // Get user
@@ -62,6 +70,18 @@ export class CardService {
 
       if (!user.isActive) {
         return { success: false, error: "User account is inactive" };
+      }
+
+      // Add card limit per user (Edge Case #3)
+      const existingCards = await prisma.virtualCard.findMany({
+        where: { userId },
+      });
+
+      if (existingCards.length >= 5) {
+        return {
+          success: false,
+          error: "Maximum 5 cards per user. Delete a card to create a new one.",
+        };
       }
 
       // Step 1: Create MOCK virtual card (NO Sudo Africa)

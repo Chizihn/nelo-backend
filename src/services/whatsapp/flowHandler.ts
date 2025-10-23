@@ -34,7 +34,7 @@ Your PIN secures all transactions and sensitive operations.
 Please enter your 4-digit PIN:`;
 
       case 2:
-        // Validate and store PIN
+        // Validate and store PIN (hide PIN in response)
         const pinValidation = PinService.validatePinFormat(message);
         if (!pinValidation.valid) {
           return `❌ ${pinValidation.errors.join(
@@ -43,26 +43,34 @@ Please enter your 4-digit PIN:`;
         }
 
         SessionManager.advanceFlow(whatsappNumber, { pin: message });
-        return `✅ PIN accepted!\n\nPlease confirm your PIN by entering it again:`;
+        return `✅ PIN received (••••)
+
+Please confirm your PIN by entering it again:`;
 
       case 3:
-        // Confirm PIN
+        // Confirm PIN (hide PIN in response)
         if (message !== flowData.pin) {
           SessionManager.updateSession(whatsappNumber, { flowStep: 2 });
-          return `❌ PINs don't match!\n\nPlease enter your 4-digit PIN again:`;
+          return `❌ PINs don't match!
+
+Please enter your 4-digit PIN again:`;
         }
 
         SessionManager.advanceFlow(whatsappNumber, { confirmPin: message });
 
         // Show security questions
         const questions = PinService.getSecurityQuestions();
-        let questionsList = `🔒 *Choose a Security Question*\n\nThis helps recover your PIN if forgotten:\n\n`;
+        let questionsList = `🔒 *Choose Security Question*
+
+This helps recover your PIN if forgotten:
+
+`;
 
         questions.forEach((q, index) => {
           questionsList += `${index + 1}. ${q.question}\n`;
         });
 
-        questionsList += `\nReply with the number (1-${questions.length}):`;
+        questionsList += `\nReply with number (1-${questions.length}):`;
 
         return questionsList;
 
@@ -108,21 +116,13 @@ Please enter your 4-digit PIN:`;
         SessionManager.completeFlow(whatsappNumber);
 
         if (setupResult.success) {
-          return `🎉 *PIN Setup Complete!*
-
-✅ Your transaction PIN is now active
-✅ Security question configured
-
-*Your account is now secure!*
-
-You can now:
-• Create virtual cards
-• Make transactions
-• Access all features
-
-Type "create card" to get started! 🚀`;
+          // Import MESSAGE_TEMPLATES
+          const { MESSAGE_TEMPLATES } = await import("@/config/whatsapp");
+          return MESSAGE_TEMPLATES.PIN_SETUP_COMPLETE;
         } else {
-          return `❌ PIN setup failed: ${setupResult.error}\n\nPlease try again by typing "setup pin"`;
+          return `❌ PIN setup failed: ${setupResult.error}
+
+Please try again: "setup pin"`;
         }
 
       default:
@@ -132,7 +132,7 @@ Type "create card" to get started! 🚀`;
   }
 
   /**
-   * Handle KYC verification flow
+   * Handle KYC verification flow - SIMPLIFIED
    */
   static async handleKYCFlow(
     whatsappNumber: string,
@@ -144,47 +144,46 @@ Type "create card" to get started! 🚀`;
 
     switch (step) {
       case 1:
-        // Welcome to KYC
+        // Welcome to KYC - ask for full name in one step
         SessionManager.advanceFlow(whatsappNumber);
-        return `🆔 *Identity Verification*
+        return `🆔 *Submit KYC - Identity Verification*
 
-To comply with regulations and secure your account, we need to verify your identity.
-
-*Required Information:*
-• Full name
-• ID number (optional for demo)
+To comply with regulations and secure your account, I need to verify your identity.
 
 *Benefits after verification:*
 ✅ Create virtual cards
-✅ Higher transaction limits
-✅ Full access to features
+✅ Higher transaction limits  
+✅ Buy/sell crypto
+✅ Send money globally
 
-Please enter your *first name*:`;
+Please enter your *full name* (First Last):
+Example: "John Doe"`;
 
       case 2:
-        // First name
-        if (!message || message.trim().length < 2) {
-          return `❌ Please enter a valid first name (at least 2 characters):`;
+        // Full name validation
+        const fullName = message.trim();
+        if (!fullName || fullName.length < 3 || !fullName.includes(" ")) {
+          return `❌ Please enter your full name with first and last name:
+Example: "John Doe" or "Mary Jane Smith"`;
         }
 
+        const nameParts = fullName.split(" ");
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ");
+
         SessionManager.advanceFlow(whatsappNumber, {
-          firstName: message.trim(),
+          firstName,
+          lastName,
+          fullName,
         });
-        return `✅ First name: ${message.trim()}\n\nNow enter your *last name*:`;
+
+        return `✅ Name: ${fullName}
+
+Optional: Enter your *ID number* or type "skip":
+(BVN, NIN, Driver's License, etc.)`;
 
       case 3:
-        // Last name
-        if (!message || message.trim().length < 2) {
-          return `❌ Please enter a valid last name (at least 2 characters):`;
-        }
-
-        SessionManager.advanceFlow(whatsappNumber, {
-          lastName: message.trim(),
-        });
-        return `✅ Last name: ${message.trim()}\n\nOptional: Enter your *ID number* or type "skip":`;
-
-      case 4:
-        // ID number (optional)
+        // ID number (optional) and complete KYC
         const idNumber =
           message.toLowerCase() === "skip" ? undefined : message.trim();
 
@@ -198,34 +197,21 @@ Please enter your *first name*:`;
         SessionManager.completeFlow(whatsappNumber);
 
         if (kycResult.success) {
-          return `🎉 *Identity Verified Successfully!*
-
-✅ Name: ${flowData.firstName} ${flowData.lastName}
-✅ KYC Level: ${kycResult.level}
-${idNumber ? `✅ ID: ${idNumber}` : ""}
-
-*Your new limits:*
-💰 Daily: ₦1,000,000
-📅 Monthly: ₦10,000,000
-💳 Cards: 5 cards
-
-*Next Steps:*
-${
-  (await PinService.hasPinSetup(session.userId))
-    ? '• Create your first card: "create card"'
-    : '• Set up your PIN: "setup pin"'
-}
-• Add bank account: "add bank"
-• Buy cNGN: "buy cngn"
-
-Welcome to Nelo! 🚀`;
+          // Import MESSAGE_TEMPLATES
+          const { MESSAGE_TEMPLATES } = await import("@/config/whatsapp");
+          return MESSAGE_TEMPLATES.KYC_COMPLETE(
+            flowData.firstName,
+            flowData.lastName
+          );
         } else {
-          return `❌ Verification failed: ${kycResult.error}\n\nPlease try again by typing "verify id"`;
+          return `❌ KYC submission failed: ${kycResult.error}
+
+Please try again: "submit kyc"`;
         }
 
       default:
         SessionManager.completeFlow(whatsappNumber);
-        return `❌ Something went wrong. Please start over by typing "verify id"`;
+        return `❌ Something went wrong. Please start over: "submit kyc"`;
     }
   }
 
