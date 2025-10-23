@@ -4,27 +4,16 @@ import { CngnService } from "../blockchain/cngnService";
 import { BasenameService } from "../blockchain/basenameService";
 import { UserService } from "../user/userService";
 import { FeeService } from "../payment/feeService";
+import { MockCardService } from "./mockCardService";
 
 import { logger } from "@/utils/logger";
 import { CONSTANTS, REGEX_PATTERNS } from "@/utils/constants";
 import { CONTRACT_ADDRESSES } from "@/config/blockchain";
-// Import Prisma enums - these will be available after running prisma generate
-type VirtualCardStatus = "ACTIVE" | "SUSPENDED" | "CLOSED";
-type TransactionType =
-  | "ONRAMP"
-  | "OFFRAMP"
-  | "DEPOSIT"
-  | "WITHDRAWAL"
-  | "PAYMENT"
-  | "REFUND"
-  | "BRIDGE"
-  | "TRANSFER";
-type TransactionStatus =
-  | "PENDING"
-  | "PROCESSING"
-  | "COMPLETED"
-  | "FAILED"
-  | "CANCELLED";
+import {
+  TransactionStatus,
+  TransactionType,
+  VirtualCardStatus,
+} from "@prisma/client";
 
 export class CardService {
   /**
@@ -40,7 +29,7 @@ export class CardService {
   }
 
   /**
-   * Create a new virtual card
+   * Create a new MOCK virtual card with REAL blockchain integration
    */
   static async createCard(userId: string): Promise<{
     success: boolean;
@@ -48,8 +37,25 @@ export class CardService {
     error?: string;
   }> {
     try {
-      // Get user with private key
-      const user = await UserService.getUserWithPrivateKey(userId);
+      // Check KYC status first
+      const { KYCService } = await import("../kyc/kycService");
+      const kycPermission = await KYCService.canPerformAction(
+        userId,
+        "CREATE_CARD"
+      );
+
+      if (!kycPermission.allowed) {
+        return {
+          success: false,
+          error: `KYC verification required: ${kycPermission.reason}`,
+        };
+      }
+
+      // Get user
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
       if (!user) {
         return { success: false, error: "User not found" };
       }
@@ -58,7 +64,10 @@ export class CardService {
         return { success: false, error: "User account is inactive" };
       }
 
-      // Generate unique card number
+      // Step 1: Create MOCK virtual card (NO Sudo Africa)
+      const mockCard = MockCardService.createMockCard(userId);
+
+      // Step 2: Generate unique card number for display
       let cardNumber: string;
       let attempts = 0;
       do {
@@ -77,24 +86,31 @@ export class CardService {
         };
       }
 
-      // Virtual cards are now database-only records
-      // No blockchain transaction needed for card creation
-      // The Nelo contract will hold the actual tokens when deposited
-
-      // Save card to database
+      // Step 3: Save MOCK card to database (NO Sudo Africa fields)
       const card = await prisma.virtualCard.create({
         data: {
           userId,
           cardNumber,
           tokenId: `card_${Date.now()}_${Math.random()
             .toString(36)
-            .substring(2, 11)}`, // Generate unique ID
+            .substring(2, 11)}`,
           contractAddress: CONTRACT_ADDRESSES.NELO_CUSTODY || "",
           status: "ACTIVE" as VirtualCardStatus,
+          // NO sudoCardId or sudoCustomerId - completely removed
+          metadata: {
+            mockCard: true,
+            cardData: JSON.parse(JSON.stringify(mockCard)),
+            maskedPan: mockCard.maskedPan,
+            expiryMonth: mockCard.expiryMonth,
+            expiryYear: mockCard.expiryYear,
+            brand: mockCard.brand,
+            currency: mockCard.currency,
+            cvv: mockCard.cvv,
+          },
         },
       });
 
-      // Create transaction record
+      // Step 4: Create transaction record for card creation
       await prisma.transaction.create({
         data: {
           userId,
@@ -102,12 +118,18 @@ export class CardService {
           type: "DEPOSIT" as TransactionType,
           amount: 0,
           status: "COMPLETED" as TransactionStatus,
-          description: "Virtual card created",
-          txHash: null, // No blockchain transaction for card creation
+          description: "Mock virtual card created for hackathon demo",
+          metadata: {
+            mockCardId: mockCard.id,
+            cardCreation: true,
+            mockTransaction: true,
+          },
         },
       });
 
-      logger.info(`Virtual card created: ${card.id} for user ${userId}`);
+      logger.info(
+        `Mock virtual card created: ${card.id} for user ${userId}, Mock ID: ${mockCard.id}`
+      );
 
       return {
         success: true,
@@ -115,11 +137,17 @@ export class CardService {
           cardId: card.id,
           cardNumber: card.cardNumber,
           tokenId: card.tokenId,
-          txHash: null, // No blockchain transaction for card creation
+          mockCardId: mockCard.id,
+          maskedPan: mockCard.maskedPan,
+          expiryMonth: mockCard.expiryMonth,
+          expiryYear: mockCard.expiryYear,
+          cvv: mockCard.cvv, // Only returned on creation
+          brand: mockCard.brand,
+          currency: mockCard.currency,
         },
       };
     } catch (error) {
-      logger.error("Error creating card:", error);
+      logger.error("Error creating mock virtual card:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Card creation failed",
@@ -145,7 +173,7 @@ export class CardService {
   }
 
   /**
-   * Get card by ID
+   * Get card by ID (NO Sudo Africa)
    */
   static async getCardById(cardId: string): Promise<any | null> {
     try {
@@ -158,12 +186,22 @@ export class CardService {
               whatsappNumber: true,
               walletAddress: true,
               basename: true,
+              firstName: true,
+              lastName: true,
             },
           },
         },
       });
 
-      return card;
+      if (!card) return null;
+
+      // Get mock card data from metadata
+      const mockData = (card.metadata as any)?.cardData || null;
+
+      return {
+        ...card,
+        mockData,
+      };
     } catch (error) {
       logger.error("Error getting card by ID:", error);
       return null;
@@ -171,7 +209,68 @@ export class CardService {
   }
 
   /**
-   * Sync card balance from blockchain
+   * Get card transactions (mock + real blockchain)
+   */
+  static async getCardTransactions(
+    cardId: string,
+    limit: number = 10
+  ): Promise<any[]> {
+    try {
+      const card = await prisma.virtualCard.findUnique({
+        where: { id: cardId },
+      });
+
+      if (!card) return [];
+
+      // Get local transactions
+      const localTransactions = await prisma.transaction.findMany({
+        where: { cardId },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+
+      // Get mock transactions for demo
+      const mockTransactions = MockCardService.getMockTransactions(cardId);
+
+      // Merge and sort transactions
+      const allTransactions = [
+        ...localTransactions.map((tx) => ({
+          ...tx,
+          source: "local",
+          displayAmount: tx.amount,
+          displayCurrency: tx.currency,
+        })),
+        ...mockTransactions.map((tx) => ({
+          id: tx.id,
+          type: tx.type.toUpperCase(),
+          amount: tx.amount,
+          currency: "NGN",
+          status: tx.status.toUpperCase(),
+          description: `${tx.merchant || "Mock Transaction"} - ${tx.type}`,
+          createdAt: new Date(tx.timestamp),
+          source: "mock",
+          displayAmount: tx.amount,
+          displayCurrency: "NGN",
+          merchant: tx.merchant,
+          mockData: tx,
+        })),
+      ];
+
+      // Sort by date and return limited results
+      return allTransactions
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+        .slice(0, limit);
+    } catch (error) {
+      logger.error("Error getting card transactions:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Sync card balance from REAL blockchain (NO Sudo Africa)
    */
   static async syncCardBalance(cardId: string): Promise<boolean> {
     try {
@@ -184,8 +283,11 @@ export class CardService {
         return false;
       }
 
-      // Get balance from Nelo custody contract
-      const user = await UserService.getUserWithPrivateKey(card.userId);
+      // Get balance from Nelo custody contract (REAL blockchain)
+      const user = await prisma.user.findUnique({
+        where: { id: card.userId },
+      });
+
       if (!user) {
         logger.error(`User not found for card: ${cardId}`);
         return false;
@@ -196,13 +298,22 @@ export class CardService {
         CONTRACT_ADDRESSES.CNGN_TOKEN || ""
       );
 
-      // Update database
+      // Update database with REAL blockchain balance
       await prisma.virtualCard.update({
         where: { id: cardId },
-        data: { cnmgBalance: blockchainBalance },
+        data: {
+          cnmgBalance: blockchainBalance,
+          metadata: {
+            ...((card.metadata as object) || {}),
+            lastSyncAt: new Date().toISOString(),
+            blockchainBalance: blockchainBalance,
+          },
+        },
       });
 
-      logger.info(`Card balance synced: ${cardId} - ${blockchainBalance} cNGN`);
+      logger.info(
+        `Card balance synced from REAL blockchain: ${cardId} - ${blockchainBalance} cNGN`
+      );
       return true;
     } catch (error) {
       logger.error("Error syncing card balance:", error);
@@ -211,22 +322,21 @@ export class CardService {
   }
 
   /**
-   * Get total balance for user
+   * Get total balance for user from REAL blockchain
    */
   static async getTotalBalance(userId: string): Promise<string> {
     try {
-      const cards = await prisma.virtualCard.findMany({
-        where: { userId, status: "ACTIVE" as VirtualCardStatus },
-        select: { cnmgBalance: true },
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
       });
 
-      const total = cards.reduce(
-        (sum: number, card: any) =>
-          sum + parseFloat(card.cnmgBalance.toString()),
-        0
-      );
+      if (!user) {
+        return "0";
+      }
 
-      return total.toFixed(8);
+      // Get REAL balance from blockchain
+      const balance = await CngnService.getBalance(user.walletAddress);
+      return balance.balance;
     } catch (error) {
       logger.error("Error getting total balance:", error);
       return "0";
@@ -248,7 +358,7 @@ export class CardService {
   }
 
   /**
-   * Send money (transfer cNGN)
+   * Send money (REAL blockchain transaction)
    */
   static async sendMoney(
     userId: string,
@@ -265,8 +375,11 @@ export class CardService {
         return { success: false, error: "Invalid amount" };
       }
 
-      // Get user with private key
-      const user = await UserService.getUserWithPrivateKey(userId);
+      // Get user
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
       if (!user) {
         return { success: false, error: "User not found" };
       }
@@ -299,9 +412,9 @@ export class CardService {
         };
       }
 
-      // Execute transfer with fee collection
+      // Execute REAL transfer with fee collection
       const transferResult = await FeeService.processTransferWithFee(
-        user.encryptedPrivateKey,
+        user.encryptedPrivateKey || "",
         recipientAddress,
         amount
       );
@@ -328,12 +441,13 @@ export class CardService {
             feeAmount: feeInfo.feeAmount,
             netAmount: feeInfo.netAmount,
             feeCollected: transferResult.feeCollected || 0,
+            realBlockchainTx: true,
           },
         },
       });
 
       logger.info(
-        `Transfer completed: ${amount} cNGN from ${user.walletAddress} to ${recipientAddress}`
+        `REAL blockchain transfer completed: ${amount} cNGN from ${user.walletAddress} to ${recipientAddress}`
       );
 
       return {
@@ -350,7 +464,7 @@ export class CardService {
   }
 
   /**
-   * Deposit cNGN to card
+   * Deposit cNGN to card with REAL blockchain integration (NO Sudo Africa)
    */
   static async depositToCard(
     cardId: string,
@@ -370,6 +484,7 @@ export class CardService {
               id: true,
               encryptedPrivateKey: true,
               walletAddress: true,
+              whatsappNumber: true,
             },
           },
         },
@@ -388,15 +503,17 @@ export class CardService {
         return { success: false, error: "Invalid amount" };
       }
 
-      // Check user's cNGN balance
+      const amountFloat = parseFloat(amount);
+
+      // Check user's cNGN balance on REAL blockchain
       const balance = await CngnService.getBalance(card.user.walletAddress);
-      if (parseFloat(balance.balance) < parseFloat(amount)) {
+      if (parseFloat(balance.balance) < amountFloat) {
         return { success: false, error: "Insufficient cNGN balance" };
       }
 
-      // Deposit to Nelo custody contract
+      // Step 1: Deposit to Nelo custody contract (REAL blockchain)
       const depositResult = await NeloContractService.depositTokens(
-        card.user.encryptedPrivateKey,
+        card.user.encryptedPrivateKey || "",
         CONTRACT_ADDRESSES.CNGN_TOKEN || "",
         amount
       );
@@ -404,27 +521,58 @@ export class CardService {
       if (!depositResult.success) {
         return {
           success: false,
-          error: depositResult.error || "Deposit failed",
+          error: depositResult.error || "Blockchain deposit failed",
         };
       }
 
-      // Update card balance
+      // Step 2: Mock card funding (since no Sudo Africa)
+      const mockFundResult = MockCardService.fundMockCard(cardId, amountFloat);
+
+      // Step 3: Update card balance in our database
       await this.syncCardBalance(cardId);
 
-      // Create transaction record
+      // Step 4: Create transaction record
       await prisma.transaction.create({
         data: {
           userId: card.userId,
           cardId,
           type: "DEPOSIT" as TransactionType,
-          amount: parseFloat(amount),
+          amount: amountFloat,
           status: "COMPLETED" as TransactionStatus,
-          description: `Deposit to card ${card.cardNumber.slice(-4)}`,
+          description: `Deposit to mock card ${card.cardNumber.slice(-4)}`,
           txHash: depositResult.txHash,
+          metadata: {
+            mockFundingResult: JSON.parse(JSON.stringify(mockFundResult)),
+            mockCardId: cardId,
+            amountInNGN: amountFloat,
+            realBlockchainTx: true,
+          },
         },
       });
 
-      logger.info(`Deposit completed: ${amount} cNGN to card ${cardId}`);
+      // Step 5: Send WhatsApp notification
+      try {
+        const { WhatsAppService } = await import(
+          "@/services/whatsapp/whatsappService"
+        );
+        const whatsappService = new WhatsAppService();
+        const message =
+          `💰 *Card Funded Successfully*\n\n` +
+          `Amount: ${amountFloat.toFixed(2)} cNGN\n` +
+          `Card: ****${card.cardNumber.slice(-4)}\n` +
+          `Balance Updated: ✅\n` +
+          `Blockchain TX: ${depositResult.txHash?.slice(0, 10)}...\n` +
+          `Time: ${new Date().toLocaleString()}\n\n` +
+          `Your card is ready for use! 🎉`;
+
+        await whatsappService.sendMessage(card.user.whatsappNumber, message);
+      } catch (notificationError) {
+        logger.error("Failed to send funding notification:", notificationError);
+      }
+
+      logger.info(
+        `REAL blockchain deposit completed: ${amount} cNGN to card ${cardId}, TX: ${depositResult.txHash}`
+      );
 
       return {
         success: true,
@@ -476,7 +624,10 @@ export class CardService {
     onRampUrl?: string;
   }> {
     try {
-      const user = await UserService.getUserWithPrivateKey(userId);
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
       if (!user) {
         throw new Error("User not found");
       }
@@ -492,16 +643,56 @@ export class CardService {
   }
 
   /**
-   * Suspend card
+   * Suspend card (mock only, no Sudo Africa)
    */
-  static async suspendCard(cardId: string): Promise<boolean> {
+  static async suspendCard(cardId: string, reason?: string): Promise<boolean> {
     try {
-      await prisma.virtualCard.update({
+      const card = await prisma.virtualCard.findUnique({
         where: { id: cardId },
-        data: { status: "SUSPENDED" as VirtualCardStatus },
+        include: { user: true },
       });
 
-      logger.info(`Card suspended: ${cardId}`);
+      if (!card) {
+        logger.error(`Card not found: ${cardId}`);
+        return false;
+      }
+
+      // Update local database only (no Sudo Africa)
+      await prisma.virtualCard.update({
+        where: { id: cardId },
+        data: {
+          status: "SUSPENDED" as VirtualCardStatus,
+          metadata: {
+            ...((card.metadata as object) || {}),
+            suspensionReason: reason,
+            suspendedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      // Send notification
+      try {
+        const { WhatsAppService } = await import(
+          "@/services/whatsapp/whatsappService"
+        );
+        const whatsappService = new WhatsAppService();
+        const message =
+          `⚠️ *Card Suspended*\n\n` +
+          `Your card ****${card.cardNumber.slice(-4)} has been suspended.\n\n` +
+          `${reason ? `Reason: ${reason}\n\n` : ""}` +
+          `Please contact support if you need assistance.`;
+
+        await whatsappService.sendMessage(card.user.whatsappNumber, message);
+      } catch (notificationError) {
+        logger.error(
+          "Failed to send suspension notification:",
+          notificationError
+        );
+      }
+
+      logger.info(
+        `Mock card suspended: ${cardId}, reason: ${reason || "Not specified"}`
+      );
       return true;
     } catch (error) {
       logger.error("Error suspending card:", error);
@@ -510,16 +701,48 @@ export class CardService {
   }
 
   /**
-   * Activate card
+   * Activate card (mock only, no Sudo Africa)
    */
   static async activateCard(cardId: string): Promise<boolean> {
     try {
+      const card = await prisma.virtualCard.findUnique({
+        where: { id: cardId },
+        include: { user: true },
+      });
+
+      if (!card) {
+        logger.error(`Card not found: ${cardId}`);
+        return false;
+      }
+
+      // Update local database only (no Sudo Africa)
       await prisma.virtualCard.update({
         where: { id: cardId },
         data: { status: "ACTIVE" as VirtualCardStatus },
       });
 
-      logger.info(`Card activated: ${cardId}`);
+      // Send notification
+      try {
+        const { WhatsAppService } = await import(
+          "@/services/whatsapp/whatsappService"
+        );
+        const whatsappService = new WhatsAppService();
+        const message =
+          `✅ *Card Activated*\n\n` +
+          `Your card ****${card.cardNumber.slice(
+            -4
+          )} has been activated and is ready for use!\n\n` +
+          `You can now make payments and transactions.`;
+
+        await whatsappService.sendMessage(card.user.whatsappNumber, message);
+      } catch (notificationError) {
+        logger.error(
+          "Failed to send activation notification:",
+          notificationError
+        );
+      }
+
+      logger.info(`Mock card activated: ${cardId}`);
       return true;
     } catch (error) {
       logger.error("Error activating card:", error);

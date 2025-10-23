@@ -1,3 +1,4 @@
+//src/config/whatsapp.ts
 import { env } from "./env";
 
 export const WHATSAPP_CONFIG = {
@@ -16,64 +17,68 @@ export const WHATSAPP_ENDPOINTS = {
 
 // Message templates
 export const MESSAGE_TEMPLATES = {
-  WELCOME: `🎉 Welcome to Nelo Virtual Cards!
+  WELCOME: `🎉 *Welcome to Nelo!*
 
-I'm your Web3 assistant for managing virtual cards on Base blockchain with cNGN.
+Your Web3 financial assistant for Nigeria 🇳🇬
 
-Available commands:
-• *create card* - Create a new virtual card
-• *balance* - Check your card balance
-• *my cards* - View all your cards
-• *send [amount] to [address/basename]* - Send cNGN
-• *deposit* - Get deposit link
-• *history* - View transactions
-• *help* - Show this menu
+I help you manage virtual cards and cNGN on Base blockchain through WhatsApp - no app needed!
 
-Let's get started! 🚀`,
+*🚀 Quick Start:*
+1. Verify your identity: "verify id"
+2. Set up security PIN: "setup pin"  
+3. Create your card: "create card"
+4. Buy cNGN: "buy 10000"
 
-  PERSONALIZED_WELCOME: (
-    name: string
-  ) => `🎉 Hey ${name}! Welcome to Nelo Virtual Cards!
+*💡 New to crypto?*
+Don't worry! I'll guide you step by step.
 
-I'm your Web3 assistant for managing virtual cards on Base blockchain with cNGN.
+Type "verify id" to begin! ✨`,
 
-Available commands:
-• *create card* - Create a new virtual card
-• *balance* - Check your card balance
-• *my cards* - View all your cards
-• *send [amount] to [address/basename]* - Send cNGN
-• *deposit* - Get deposit link
-• *history* - View transactions
-• *help* - Show this menu
+  PERSONALIZED_WELCOME: (name: string) => `🎉 *Hey ${name}! Welcome to Nelo!*
 
-Let's get started! 🚀`,
+Your personal Web3 financial assistant 🇳🇬
 
-  HELP: `🤖 *Nelo Bot Commands*
+I help you manage virtual cards and cNGN on Base blockchain - all through WhatsApp!
 
-💳 *Card Management:*
-• create card / new card
-• balance / check balance
-• my cards / list cards
+*🚀 Let's get you started:*
+1. Verify your identity: "verify id"
+2. Set up security PIN: "setup pin"
+3. Create your card: "create card"
+4. Start using crypto: "buy cngn"
 
-💰 *Money Operations:*
-• send [amount] to [address/basename]
-• buy [amount] / buy cngn
-• withdraw [amount] / cash out
-• deposit / add funds
+*💡 First time with crypto?*
+Perfect! I'll make it super easy.
+
+Ready? Type "verify id" to begin! ✨`,
+
+  HELP: `🤖 *Nelo - Your Web3 Money Assistant*
+
+🆔 *Getting Started:*
+• verify id - Complete identity verification
+• create card - Get your virtual card
+
+💳 *Card & Balance:*
+• balance - Check your cNGN balance
+• my cards - View all your cards
+
+💰 *Buy & Sell cNGN:*
+• buy 10000 - Buy cNGN with bank transfer
+• paid 10000 - Confirm your payment
+• cash out 5000 - Withdraw to your bank
 
 🏦 *Banking:*
-• bank account / add bank
-• history / transactions
+• add bank GTB 0123456789 John Doe
+• my banks - View saved accounts
 
-👤 *Profile & Settings:*
-• profile / my info
-• set basename [name]
-• help / commands
+💸 *Send Money:*
+• send 1000 to alice.base.eth
+• send 500 to 0x1234...
 
-*Examples:*
-• "send 5000 to mama.basetest.eth"
-• "buy 50000" (buy cNGN with NGN)
-• "withdraw 25000" (cash out to bank)`,
+📊 *History & Profile:*
+• history - Recent transactions
+• profile - Your account info
+
+*New to crypto?* Start with "verify id" then "create card"! 🚀`,
 
   CARD_CREATED: (cardNumber: string, address: string) =>
     `✅ *Card Created Successfully!*

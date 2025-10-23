@@ -86,6 +86,49 @@ export class IntentParser {
       /^is\s+(.+)\s+available/i,
       /^basename available\s+(.+)/i,
     ],
+
+    // KYC and verification
+    VERIFY_ID: [
+      /^(verify id|verify|kyc|identity)/i,
+      /^(my name is|i am)\s+(.+)/i,
+      /^(verify me|check identity)/i,
+    ],
+
+    // Bank operations
+    ADD_BANK: [
+      /^(add bank|my bank is)\s+(.+)/i,
+      /^(bank)\s+(.+)/i,
+      /^(set bank|update bank)\s+(.+)/i,
+    ],
+
+    // Fiat operations
+    CASH_OUT: [
+      /^(cash out|cashout)\s+(\d+(?:\.\d+)?)/i,
+      /^(withdraw to bank|bank withdraw)\s+(\d+(?:\.\d+)?)/i,
+    ],
+
+    BUY_WITH_BANK: [
+      /^(buy)\s+(\d+(?:\.\d+)?)/i,
+      /^(purchase)\s+(\d+(?:\.\d+)?)/i,
+      /^(fund)\s+(\d+(?:\.\d+)?)/i,
+    ],
+
+    CONFIRM_PAYMENT: [
+      /^(paid|payment done|transferred)\s+(\d+(?:\.\d+)?)/i,
+      /^(sent|completed)\s+(\d+(?:\.\d+)?)/i,
+      /^(done)\s+(\d+(?:\.\d+)?)/i,
+    ],
+
+    // Security and PIN
+    SETUP_PIN: [
+      /^(setup pin|set pin|create pin)/i,
+      /^(pin setup|configure pin)/i,
+    ],
+
+    RESET_PIN: [/^(reset pin|change pin|forgot pin)/i, /^(pin reset|new pin)/i],
+
+    // General
+    CANCEL: [/^(cancel|stop|abort|exit)/i, /^(no|nope|nevermind)/i],
   };
 
   /**
@@ -154,6 +197,65 @@ export class IntentParser {
 
             // Handle withdraw with amount
             if (intentType === "WITHDRAW" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle KYC verification
+            if (intentType === "VERIFY_ID" && match.length >= 2) {
+              const nameMatch = match[0].match(
+                /(?:my name is|i am)\s+([a-z\s]+?)(?:\s*,?\s*id\s*(\w+))?$/i
+              );
+              if (nameMatch) {
+                const fullName = nameMatch[1].trim();
+                const nameParts = fullName.split(/\s+/);
+                const firstName = nameParts[0];
+                const lastName = nameParts.slice(1).join(" ") || firstName;
+                const idNumber = nameMatch[2];
+
+                intent.data = {
+                  firstName,
+                  lastName,
+                  idNumber,
+                };
+              }
+            }
+
+            // Handle add bank
+            if (intentType === "ADD_BANK" && match.length >= 2) {
+              const bankInfo = match[0];
+              const bankMatch = bankInfo.match(
+                /(?:my bank is|add bank|bank)\s+([^,]+),?\s*account\s+(\d+),?\s*(.+)/i
+              );
+              if (bankMatch) {
+                intent.data = {
+                  bankName: bankMatch[1].trim(),
+                  accountNumber: bankMatch[2].trim(),
+                  accountName: bankMatch[3].trim(),
+                };
+              }
+            }
+
+            // Handle cash out
+            if (intentType === "CASH_OUT" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle buy with bank
+            if (intentType === "BUY_WITH_BANK" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle payment confirmation
+            if (intentType === "CONFIRM_PAYMENT" && match.length >= 3) {
               const amount = match[2];
               if (REGEX_PATTERNS.AMOUNT.test(amount)) {
                 intent.data = { amount };

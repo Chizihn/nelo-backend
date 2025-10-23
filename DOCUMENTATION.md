@@ -2,7 +2,7 @@
 
 ## 🌟 **Overview**
 
-Nelo is a revolutionary WhatsApp-based digital payment system that enables Nigerians to create and manage virtual debit cards using cNGN (Nigerian Central Bank Digital Currency) on the Base blockchain. Users can perform all banking operations through simple WhatsApp messages.
+Nelo is a revolutionary WhatsApp-based digital payment system that enables Nigerians to create and manage virtual debit cards using cNGN (a regulated stablecoin pegged 1:1 to the Nigerian Naira) on the Base blockchain. Users can perform all banking operations through simple WhatsApp messages.
 
 ### **🎯 Mission**
 
@@ -13,7 +13,7 @@ To democratize digital payments in Nigeria by making blockchain-based financial 
 - 📱 **WhatsApp Interface** - No app downloads required
 - 💳 **Instant Virtual Cards** - Create cards in seconds
 - 🔒 **Blockchain Security** - Built on Base (Ethereum L2)
-- 💰 **cNGN Integration** - Use Nigeria's digital currency
+- 💰 **cNGN Integration** - Use regulated Naira-pegged stablecoin
 - 🏦 **Full Banking** - Deposit, withdraw, transfer, pay
 - 🌐 **ENS Basenames** - Human-readable wallet addresses
 - 📊 **Real-time Tracking** - Instant transaction updates
@@ -73,7 +73,7 @@ To democratize digital payments in Nigeria by making blockchain-based financial 
 
 ### **Primary Users**
 
-- **Nigerian Millennials & Gen Z** (18-35 years)
+- **Nigerian Millennials & Gen Z**
 - **Small Business Owners** seeking digital payment solutions
 - **Freelancers** needing international payment capabilities
 - **Students** requiring easy money management
@@ -81,7 +81,7 @@ To democratize digital payments in Nigeria by making blockchain-based financial 
 
 ### **User Personas**
 
-#### **🎓 Student - Pelumi (22)**
+#### **🎓 Student - Ada (22)**
 
 - **Needs**: Easy money management, low fees, parental transfers
 - **Usage**: Receives money from parents, pays for food/transport
@@ -166,16 +166,18 @@ User → "send 500 08012345678" → Bot → Validation → Blockchain Transfer �
 #### **5. Withdrawing Funds**
 
 ```
-User → "withdraw 1000" → Bot → Bank Details → Validation → Off-ramp → Bank Transfer
+User → "withdraw 1000" → Bot → Bank Details → KYC/AML Check → Off-ramp Conversion → Bank Transfer
 ```
 
 **Detailed Steps:**
 
 1. User requests withdrawal
 2. System prompts for bank account details
-3. cNGN converted to NGN via off-ramp
-4. Funds transferred to user's bank account
-5. Transaction confirmation sent
+3. KYC/AML validation performed
+4. cNGN sent to off-ramp provider (e.g., Paystack, Transak)
+5. Off-ramp converts cNGN to NGN (1:1 minus fees)
+6. NGN transferred to user's bank account via NIBSS/bank rails
+7. Transaction confirmation sent to user
 
 ---
 
@@ -183,21 +185,24 @@ User → "withdraw 1000" → Bot → Bank Details → Validation → Off-ramp �
 
 ### **Card Architecture**
 
-Virtual cards in Nelo are **logical constructs** backed by blockchain custody:
+Virtual cards in Nelo are **real payment cards** issued through Sudo Africa and backed by blockchain custody:
 
 ```typescript
 // Virtual Card Structure
 {
   cardId: "card_uuid",
-  cardNumber: "4532****1234",    // Masked for security
+  cardNumber: "5399****1234",    // Real Visa card number (masked)
   userId: "user_uuid",
   walletAddress: "0x...",        // User's blockchain wallet
+  sudoCardId: "sudo_card_id",    // Sudo Africa card reference
+  tokenId: "blockchain_token",   // Smart contract token ID
   balance: "1000.00",            // cNGN balance from custody
   status: "ACTIVE",              // ACTIVE, SUSPENDED, EXPIRED
-  createdAt: "2024-01-01T00:00:00Z",
-  expiryDate: "2027-01-01",      // 3 years validity
+  createdAt: "2025-01-01T00:00:00Z",
+  expiryDate: "2028-01-01",      // 3 years validity
   cvv: "***",                    // Encrypted, never shown
-  type: "VIRTUAL"                // Future: PHYSICAL cards
+  type: "VIRTUAL",               // Real functional virtual card
+  cardholderName: "NELO USER"    // Pseudonymous name
 }
 ```
 
@@ -206,8 +211,8 @@ Virtual cards in Nelo are **logical constructs** backed by blockchain custody:
 #### **Create Card**
 
 - **Command**: `"create card"`
-- **Process**: Database record + custody account linking
-- **Result**: Instant card with 0 balance
+- **Process**: Smart contract + Sudo Africa card provisioning
+- **Result**: Real Visa virtual card with 0 balance
 - **Limits**: 3 cards per user initially
 
 #### **Fund Card**
@@ -219,9 +224,9 @@ Virtual cards in Nelo are **logical constructs** backed by blockchain custody:
 
 #### **Card Payments**
 
-- **Command**: `"pay [amount] [merchant]"` or `"send [amount] [phone]"`
-- **Process**: Custody transfer between users
-- **Result**: Instant settlement
+- **Command**: Use card at any merchant (online/offline)
+- **Process**: Real-time authorization → blockchain settlement
+- **Result**: Instant merchant payment with cNGN deduction
 - **Limits**: ₦100 - ₦100,000 per transaction
 
 #### **Card Withdrawal**
@@ -330,6 +335,24 @@ Virtual cards in Nelo are **logical constructs** backed by blockchain custody:
 
 ## 🚀 **Technical Implementation**
 
+### **Functional Card Architecture**
+
+The system combines blockchain custody with real payment card infrastructure:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Smart         │    │   Nelo          │    │   Sudo Africa   │
+│   Contract      │◄──►│   Backend       │◄──►│   Card Issuer   │
+│   (cNGN)        │    │                 │    │   (Real Cards)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+        │                       │                       │
+        ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Base          │    │   Database      │    │   Visa/MC       │
+│   Blockchain    │    │   Records       │    │   Networks      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
 ### **Smart Contract Architecture**
 
 #### **NELO_CUSTODY Contract**
@@ -358,10 +381,10 @@ event Withdrawn(address indexed user, address indexed token, uint256 amount, add
 ```typescript
 // cNGN Token Integration
 const CNGN_CONTRACT = {
-  address: "0x...", // From Central Bank of Nigeria
+  address: "0x...", // From African Stablecoin Consortium
   decimals: 18,
   symbol: "cNGN",
-  name: "Central Bank Digital Currency Nigeria",
+  name: "cNGN Stablecoin",
 };
 
 // Balance Check
@@ -449,7 +472,7 @@ GET /api/transactions/:id // Get transaction details
 
 ```
 User: "Hi" or "Hello" or "Start"
-Bot: "🎉 Hey [Name]! Welcome to Nelo Virtual Cards!
+Bot: "🎉 Hey [Name]! Welcome to Nelo!
 
      I'm your personal banking assistant. Here's what I can help you with:
 
@@ -496,15 +519,17 @@ Bot: "📋 NELO COMMANDS MENU
 
 ```
 User: "create card"
-Bot: "✅ Card Created Successfully!
+Bot: "✅ Real Virtual Card Created Successfully!
 
-     💳 Your Virtual Card Details:
-     Card Number: 4532 **** **** 1234
-     Expiry: 01/27
+     💳 Your Functional Virtual Card:
+     Card Number: 5399 **** **** 1234
+     Expiry: 01/28
+     Cardholder: NELO USER
      Status: Active
      Balance: 0 cNGN
 
-     🔒 Security: Your CVV is securely stored and will be provided when needed for payments.
+     🌍 This card works globally at any merchant that accepts Visa!
+     🔒 Your CVV is securely stored and will be provided when needed.
 
      💡 Next Step: Add money with 'buy [amount]'
      Example: 'buy 5000' to add ₦5,000"
@@ -905,15 +930,15 @@ curl http://localhost:3000/health
 
 ## 🔮 **Roadmap**
 
-### **Phase 1: MVP (Q1 2024)** ✅
+### **Phase 1: MVP (Q2 2025)** 🚧
 
-- [x] WhatsApp bot interface
-- [x] Virtual card creation
-- [x] Basic P2P transfers
-- [x] On-ramp integration
-- [x] Off-ramp to Nigerian banks
+- [ ] WhatsApp bot interface
+- [ ] Virtual card creation
+- [ ] Basic P2P transfers
+- [ ] On-ramp integration
+- [ ] Off-ramp to Nigerian banks
 
-### **Phase 2: Enhanced Features (Q2 2024)**
+### **Phase 2: Enhanced Features (Q3 2025)**
 
 - [ ] Physical card issuance
 - [ ] Merchant payment integration
@@ -921,7 +946,7 @@ curl http://localhost:3000/health
 - [ ] Multi-language support (Yoruba, Igbo, Hausa)
 - [ ] USSD fallback for feature phones
 
-### **Phase 3: Scale & Expand (Q3 2024)**
+### **Phase 3: Scale & Expand (Q4 2025)**
 
 - [ ] Multi-country expansion (Ghana, Kenya)
 - [ ] DeFi yield farming integration
@@ -929,7 +954,7 @@ curl http://localhost:3000/health
 - [ ] Business accounts and invoicing
 - [ ] API for third-party integrations
 
-### **Phase 4: Advanced Financial Services (Q4 2024)**
+### **Phase 4: Advanced Financial Services (Q1 2026)**
 
 - [ ] Credit scoring and micro-loans
 - [ ] Insurance products
@@ -943,10 +968,10 @@ curl http://localhost:3000/health
 
 ### **Regulatory Compliance**
 
-- **CBN Guidelines**: Compliant with Central Bank of Nigeria digital currency regulations
+- **CBN Guidelines**: Compliant with Central Bank of Nigeria stablecoin regulations for cNGN usage
 - **Data Protection**: GDPR and Nigerian Data Protection Regulation (NDPR) compliant
 - **AML/KYC**: Anti-Money Laundering and Know Your Customer procedures implemented
-- **Financial Licensing**: Working towards Payment Service Provider (PSP) license
+- **Financial Licensing**: Working towards Payment Service Provider (PSP) license for cNGN-based services
 
 ### **Terms of Service**
 
@@ -1033,13 +1058,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 **Acknowledgments**
 
 - **Base Team** for the excellent L2 infrastructure
-- **cNGN Team** for the digital currency partnership
+- **African Stablecoin Consortium** for the cNGN stablecoin integration
 - **Meta** for the WhatsApp Business API
 - **Nigerian Fintech Community** for inspiration and support
 - **Open Source Contributors** who made this possible
 
 ---
 
-**Built with ❤️ for Nigeria 🇳🇬**
-
-_Nelo Virtual Cards - Making Digital Payments Accessible to Everyone_
+_Nelo - Making Digital Payments Accessible to Everyone_

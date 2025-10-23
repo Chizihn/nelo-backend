@@ -68,6 +68,17 @@ app.use((req, res, next) => {
     ip: req.ip,
     userAgent: req.get("User-Agent"),
   });
+
+  // Special logging for webhook requests
+  if (req.url.includes("/webhook/whatsapp")) {
+    logger.info("🔔 WEBHOOK REQUEST DETECTED!", {
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      body: req.body,
+    });
+  }
+
   next();
 });
 

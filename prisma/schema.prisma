@@ -16,9 +16,32 @@ model User {
   walletAddress        String        @unique
   basename             String?       @unique
   basenameVerified     Boolean       @default(false)
-  encryptedPrivateKey  String
-  publicKey            String
+  encryptedPrivateKey  String?       // Made optional for Privy users
+  publicKey            String?       // Made optional for Privy users
   isActive             Boolean       @default(true)
+  
+  // Privy integration
+  privyUserId          String?       @unique
+  privyWalletAddress   String?       @unique
+  
+  // User info
+  firstName            String?
+  lastName             String?
+  email                String?
+  
+  // KYC information
+  kycVerified          Boolean       @default(false)
+  kycLevel             String        @default("NONE") // NONE, BASIC, VERIFIED, PREMIUM
+  kycData              Json?
+  
+  // Virtual bank account
+  virtualAccountNumber String?
+  virtualBankName      String?
+  virtualAccountRef    String?       @unique
+  
+  // Metadata
+  metadata             Json?
+  
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   
@@ -26,6 +49,7 @@ model User {
   virtualCards         VirtualCard[]
   transactions         Transaction[]
   sessions             Session[]
+  bankAccounts         BankAccount[]
   
   @@map("users")
 }
@@ -39,6 +63,13 @@ model VirtualCard {
   balance         Decimal           @default(0) @db.Decimal(18, 8)
   cnmgBalance     Decimal           @default(0) @db.Decimal(18, 8)
   status          VirtualCardStatus @default(ACTIVE)
+  
+  // Mock card integration (no external service)
+  mockCardId           String?      @unique
+  
+  // Metadata
+  metadata        Json?
+  
   lastUsedAt      DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -60,7 +91,13 @@ model Transaction {
   txHash      String?           @unique
   status      TransactionStatus @default(PENDING)
   description String?
+  
+  // Mock transaction integration (no external service)
+  mockTransactionId       String? @unique
+  
+  // Metadata
   metadata    Json?
+  
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   
@@ -82,6 +119,29 @@ model Session {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@map("sessions")
+}
+
+model BankAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  accountNumber String
+  bankName      String
+  bankCode      String
+  accountName   String
+  isActive      Boolean  @default(true)
+  isVerified    Boolean  @default(false)
+  
+  // Metadata
+  metadata      Json?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, accountNumber])
+  @@map("bank_accounts")
 }
 
 enum VirtualCardStatus {

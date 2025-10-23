@@ -1,3 +1,4 @@
+//src/config/blockchain.ts
 import { ethers } from "ethers";
 import { config } from "dotenv";
 config(); // Load .env file
@@ -18,7 +19,7 @@ if (!env.DEPLOYER_PRIVATE_KEY)
   throw new Error("DEPLOYER_PRIVATE_KEY is not set");
 if (!env.NELO_CUSTODY_CONTRACT_ADDRESS)
   throw new Error("NELO_CUSTODY_CONTRACT_ADDRESS is not set");
-if (!env.CNGN_TOKEN_ADDRESS) throw new Error("CNGN_TOKEN_ADDRESS is not set");
+// if (!env.CNGN_TOKEN_ADDRESS) throw new Error("CNGN_TOKEN_ADDRESS is not set");
 if (!env.L2_RESOLVER_ADDRESS) throw new Error("L2_RESOLVER_ADDRESS is not set");
 if (env.L2_RESOLVER_ADDRESS !== "0xC6d566A56A1aFf6508b41f6c90ff131615583BCD") {
   console.warn(
@@ -42,7 +43,6 @@ export const CONTRACT_ADDRESSES = {
   NELO_CUSTODY: env.NELO_CUSTODY_CONTRACT_ADDRESS,
   CNGN_TOKEN: env.CNGN_TOKEN_ADDRESS,
   L2_RESOLVER: env.L2_RESOLVER_ADDRESS,
-  VIRTUAL_CARD: env.NELO_CUSTODY_CONTRACT_ADDRESS, // Virtual cards use the custody contract
 } as const;
 
 // Chain configuration
@@ -68,20 +68,7 @@ export const CONTRACT_ABIS = {
     "event TransferToCustodian(address indexed user, address indexed token, uint256 amount, address indexed custodian)",
     "event TokenWhitelisted(address indexed token, bool indexed allowed)",
   ],
-  VIRTUAL_CARD: [
-    "function deposit(address token, uint256 amount) external",
-    "function withdraw(address token, uint256 amount, address to) external",
-    "function balanceOf(address user, address token) external view returns (uint256)",
-    "function getCardBalance(string tokenId) external view returns (uint256)",
-    "function createCard(address owner) external returns (string)",
-    "function depositToCard(string tokenId, uint256 amount) external",
-    "function processPayment(string tokenId, uint256 amount, address merchant) external",
-    "function getCardOwner(string tokenId) external view returns (address)",
-    "function isCardActive(string tokenId) external view returns (bool)",
-    "event CardCreated(string indexed tokenId, address indexed owner)",
-    "event Deposit(string indexed tokenId, uint256 amount)",
-    "event Payment(string indexed tokenId, uint256 amount, address indexed merchant)",
-  ],
+
   CNGN_TOKEN: [
     "function balanceOf(address account) external view returns (uint256)",
     "function transfer(address to, uint256 amount) external returns (bool)",
