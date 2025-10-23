@@ -65,6 +65,8 @@ export class IntentParser {
 
     BUY_CRYPTO: [/^(buy|buy crypto|add money|fund wallet)/i],
 
+    BUY_AMOUNT: [/^buy\s+(\d+(?:\.\d+)?)$/i],
+
     WITHDRAW: [
       /^(withdraw|cash out|off ramp|offramp)/i,
       /^(sell cngn|convert to naira)/i,
@@ -247,6 +249,14 @@ export class IntentParser {
             // Handle buy USDT with amount
             if (intentType === "BUY_USDT" && match.length >= 3) {
               const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle buy amount (default to cNGN)
+            if (intentType === "BUY_AMOUNT" && match.length >= 2) {
+              const amount = match[1];
               if (REGEX_PATTERNS.AMOUNT.test(amount)) {
                 intent.data = { amount };
               }

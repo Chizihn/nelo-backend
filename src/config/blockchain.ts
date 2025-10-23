@@ -53,6 +53,29 @@ export const CONTRACT_ADDRESSES = {
   NELO_CUSTODY: env.NELO_CUSTODY_CONTRACT_ADDRESS,
   CNGN_TOKEN: env.CNGN_TOKEN_ADDRESS,
   L2_RESOLVER: env.L2_RESOLVER_ADDRESS,
+  // USDC is available on Base Sepolia!
+  USDC_TOKEN: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Base Sepolia USDC
+  USDT_TOKEN: null, // Not available on Base Sepolia
+} as const;
+
+// Supported tokens configuration
+export const SUPPORTED_TOKENS = {
+  cNGN: {
+    address: env.CNGN_TOKEN_ADDRESS,
+    decimals: 6, // FIXED: Your cNGN has 6 decimals, not 18!
+    symbol: "cNGN",
+    name: "Nigerian Naira Token",
+    deployed: true,
+    network: "Base Sepolia",
+  },
+  USDC: {
+    address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // REAL Base Sepolia USDC
+    decimals: 6,
+    symbol: "USDC",
+    name: "USD Coin",
+    deployed: true, // FIXED: It IS deployed!
+    network: "Base Sepolia",
+  },
 } as const;
 
 // Chain configuration

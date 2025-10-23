@@ -51,7 +51,52 @@ export class WebhookController {
 
       // Re-enable webhook signature verification for security
       if (!this.verifySignature(req)) {
-        logger.error("Invalid webhook signature");
+        logger.error("Signature verification failed");
+
+        // Send a helpful response to the user even if signature fails
+        try {
+          const payload: WhatsAppWebhookPayload = req.body;
+
+          // Extract phone number from failed webhook
+          for (const entry of payload.entry) {
+            for (const change of entry.changes) {
+              if (change.field === "messages" && change.value.messages) {
+                for (const message of change.value.messages) {
+                  // Send error message to user
+                  const { WhatsAppService } = await import(
+                    "@/services/whatsapp/whatsappService"
+                  );
+                  const whatsappService = new WhatsAppService();
+
+                  await whatsappService.sendMessage(
+                    message.from,
+                    `❌ *Service Temporarily Unavailable*
+
+I'm having trouble processing your message right now. This usually happens when:
+
+• Using a different phone number
+• Network connectivity issues
+• System maintenance
+
+*Please try:*
+1. Use your registered phone number
+2. Wait a few minutes and try again
+3. Contact support if issue persists
+
+Type "help" when the service is restored.`
+                  );
+
+                  logger.info(
+                    `Sent error message to user ${message.from} due to signature failure`
+                  );
+                }
+              }
+            }
+          }
+        } catch (fallbackError) {
+          logger.error("Failed to send fallback message:", fallbackError);
+        }
+
         res.status(401).send("Unauthorized");
         return;
       }

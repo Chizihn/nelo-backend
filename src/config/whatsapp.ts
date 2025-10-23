@@ -59,27 +59,26 @@ Ready? Type "submit kyc" to begin! ✨`,
 • create card - Get your virtual card
 
 *💰 Buy Crypto:*
-• buy cngn - Buy Nigerian Naira token
-• buy usdc - Buy USD Coin  
-• buy usdt - Buy Tether
-• paid [amount] - Confirm payment
+• buy cngn - Buy Nigerian Naira (cNGN)
+• buy 10000 - Buy ₦10,000 cNGN with bank transfer
+• buy crypto - See all options (cNGN only for now)
 
 *💳 Cards & Balance:*
-• balance - Check all your crypto
-• my cards - View virtual cards
+• balance - Check your crypto portfolio
+• my cards - View your virtual cards
 
 *💸 Send Money:*
-• send 1000 cngn to alice.base.eth
+• send 1000 to alice.base.eth
 • send 50 usdc to 0x1234...
 
-*🏦 Banking:*
-• add bank - Link your bank account
-• cash out 5000 - Withdraw to bank
-• my banks - View saved accounts
+*🏦 Banking & Withdrawal:*
+• add bank - Link your Nigerian bank account
+• withdraw 5000 - Cash out to your bank
+• my banks - View saved bank accounts
 
-*📊 Account:*
-• history - Recent transactions
-• profile - Your account info
+*📊 Account & History:*
+• history - View recent transactions
+• profile - Your account information
 
 *🔐 Security:*
 • setup pin - Create security PIN

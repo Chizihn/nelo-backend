@@ -66,7 +66,7 @@ model VirtualCard {
   tokenId         String            @unique
   contractAddress String
   balance         Decimal           @default(0) @db.Decimal(18, 8)
-  cnmgBalance     Decimal           @default(0) @db.Decimal(18, 8)
+  cNGNBalance     Decimal           @default(0) @db.Decimal(18, 8)
   status          VirtualCardStatus @default(ACTIVE)
   
   // Mock card integration (no external service)
