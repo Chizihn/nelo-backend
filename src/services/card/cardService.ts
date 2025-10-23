@@ -322,7 +322,7 @@ export class CardService {
       await prisma.virtualCard.update({
         where: { id: cardId },
         data: {
-          cnmgBalance: blockchainBalance,
+          cNGNBalance: blockchainBalance,
           metadata: {
             ...((card.metadata as object) || {}),
             lastSyncAt: new Date().toISOString(),

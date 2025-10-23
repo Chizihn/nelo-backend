@@ -383,7 +383,7 @@ export class UserService {
       const [cards, transactions] = await Promise.all([
         prisma.virtualCard.findMany({
           where: { userId },
-          select: { cnmgBalance: true, lastUsedAt: true },
+          select: { cNGNBalance: true, lastUsedAt: true },
         }),
         prisma.transaction.count({
           where: { userId },
@@ -393,7 +393,7 @@ export class UserService {
       const totalBalance = cards
         .reduce(
           (sum: number, card: any) =>
-            sum + parseFloat(card.cnmgBalance.toString()),
+            sum + parseFloat(card.cNGNBalance.toString()),
           0
         )
         .toString();

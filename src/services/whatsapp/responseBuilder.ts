@@ -38,7 +38,7 @@ export class ResponseBuilder {
 
     return `💳 *Card ${card.cardNumber.slice(-4)}*
 
-💰 Balance: ${card.cnmgBalance} cNGN
+💰 Balance: ${card.cNGNBalance} cNGN
 📊 Status: ${status}
 🕒 Last Used: ${lastUsed}
 🆔 Token ID: ${card.tokenId}`;
@@ -81,7 +81,7 @@ export class ResponseBuilder {
       response += `📱 *Card Breakdown:*\n`;
       cards.forEach((card, index) => {
         response += `${index + 1}. Card ${card.cardNumber.slice(-4)}: ${
-          card.cnmgBalance
+          card.cNGNBalance
         } cNGN\n`;
       });
     }

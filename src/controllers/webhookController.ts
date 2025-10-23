@@ -377,11 +377,11 @@ Type "help" when the service is restored.`
       if (!card) return;
 
       // Update card balance
-      const newBalance = Number(card.cnmgBalance) - transaction.amount / 100;
+      const newBalance = Number(card.cNGNBalance) - transaction.amount / 100;
 
       await prisma.virtualCard.update({
         where: { id: card.id },
-        data: { cnmgBalance: Math.max(0, newBalance) },
+        data: { cNGNBalance: Math.max(0, newBalance) },
       });
 
       logger.info(

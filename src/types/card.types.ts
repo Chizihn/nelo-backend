@@ -13,7 +13,7 @@ export interface CardInfo {
   cardNumber: string;
   tokenId: string;
   balance: string;
-  cnmgBalance: string;
+  cNGNBalance: string;
   status: VirtualCardStatus;
   lastUsedAt?: Date;
   createdAt: Date;
@@ -70,6 +70,6 @@ export interface OffRampRequest {
 
 export interface CardBalance {
   cardId: string;
-  cnmgBalance: string;
+  cNGNBalance: string;
   lastSyncAt: Date;
 }
