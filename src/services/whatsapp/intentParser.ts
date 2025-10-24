@@ -11,24 +11,32 @@ export interface ParsedIntent {
 
 export class IntentParser {
   private patterns = {
-    // Greetings
+    // Greetings - More natural
     GREETING: [
       /^(hi|hello|hey|good morning|good afternoon|good evening)/i,
-      /^(start|begin)/i,
+      /^(start|begin|let's start|get started)/i,
+      /^(yo|sup|what's up|wassup)/i,
     ],
 
-    // Help
-    HELP: [/^(help|commands|menu|what can you do)/i, /^(how to|how do i)/i],
+    // Help - More conversational
+    HELP: [
+      /^(help|commands|menu|what can you do)/i,
+      /^(how to|how do i|show me|guide me)/i,
+      /^(i need help|help me|assist me|support)/i,
+      /^(what|huh|confused|lost|stuck)/i,
+    ],
 
-    // Card operations
+    // Card operations - More natural
     CREATE_CARD: [
       /^(create card|new card|make card|get card)/i,
-      /^(i want a card|need a card)/i,
+      /^(i want a card|need a card|give me a card)/i,
+      /^(card please|can i get a card|make me a card)/i,
     ],
 
     CHECK_BALANCE: [
       /^(balance|check balance|my balance|show balance)/i,
-      /^(how much|what's my balance)/i,
+      /^(how much|what's my balance|money|funds)/i,
+      /^(portfolio|wallet|my money|my crypto)/i,
     ],
 
     LIST_CARDS: [/^(my cards|list cards|show cards|cards)$/i, /^(all cards)$/i],
@@ -38,11 +46,38 @@ export class IntentParser {
       /^(my card|card)$/i,
     ],
 
-    // Transactions - Multi-token support
+    DELETE_CARD: [
+      /^(delete card|remove card|deactivate card)/i,
+      /^(close card|cancel card)/i,
+    ],
+
+    FREEZE_CARD: [
+      /^(freeze card|block card|disable card)/i,
+      /^(pause card|stop card)/i,
+    ],
+
+    UNFREEZE_CARD: [
+      /^(unfreeze card|unblock card|enable card)/i,
+      /^(activate card|resume card)/i,
+    ],
+
+    WITHDRAW_FROM_CARD: [
+      /^(withdraw from card|card withdraw)\s+(\d+(?:\.\d+)?)/i,
+      /^(move from card|transfer from card)\s+(\d+(?:\.\d+)?)/i,
+    ],
+
+    CARD_HISTORY: [
+      /^(card history|card transactions)/i,
+      /^(my card activity|card activity)/i,
+    ],
+
+    // Transactions - More natural language
     SEND_MONEY: [
-      /^send\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc|usdt)\s+)?to\s+(.+)/i,
-      /^transfer\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc|usdt)\s+)?to\s+(.+)/i,
-      /^pay\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc|usdt)\s+)?to\s+(.+)/i,
+      /^send\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc)\s+)?to\s+(.+)/i,
+      /^transfer\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc)\s+)?to\s+(.+)/i,
+      /^pay\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc)\s+)?to\s+(.+)/i,
+      /^give\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc)\s+)?to\s+(.+)/i,
+      /^i want to send\s+(\d+(?:\.\d+)?)\s*(?:(cngn|usdc)\s+)?to\s+(.+)/i,
     ],
 
     DEPOSIT: [
@@ -60,10 +95,14 @@ export class IntentParser {
       /^(buy usd|add usd)/i,
     ],
 
-    BUY_USDT: [
-      /^(buy usdt|buy (\d+(?:\.\d+)?)\s*usdt)/i,
-      /^(buy tether|add tether)/i,
+    // Bridge operations
+    BRIDGE: [
+      /^bridge\s+(\d+(?:\.\d+)?)\s+(cngn|usdc)\s+to\s+(cngn|usdc)/i,
+      /^swap\s+(\d+(?:\.\d+)?)\s+(cngn|usdc)\s+for\s+(cngn|usdc)/i,
+      /^convert\s+(\d+(?:\.\d+)?)\s+(cngn|usdc)\s+to\s+(cngn|usdc)/i,
     ],
+
+    // USDT removed - focusing only on cNGN and USDC
 
     BUY_AMOUNT: [/^buy\s+(\d+(?:\.\d+)?)$/i],
 
@@ -142,6 +181,12 @@ export class IntentParser {
 
     RESET_PIN: [/^(reset pin|change pin|forgot pin)/i, /^(pin reset|new pin)/i],
 
+    // Bridge operations
+    BRIDGE_TOKENS: [
+      /^(bridge|swap)\s+(\d+(?:\.\d+)?)\s+(cngn|usdc)\s+to\s+(cngn|usdc)/i,
+      /^(convert)\s+(\d+(?:\.\d+)?)\s+(cngn|usdc)\s+to\s+(cngn|usdc)/i,
+    ],
+
     // General
     CANCEL: [/^(cancel|stop|abort|exit)/i, /^(no|nope|nevermind)/i],
   };
@@ -212,6 +257,44 @@ export class IntentParser {
               }
             }
 
+            // Handle buy USDC with amount
+            if (intentType === "BUY_USDC" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle bridge tokens
+            if (intentType === "BRIDGE_TOKENS" && match.length >= 5) {
+              const amount = match[2];
+              const fromToken = match[3];
+              const toToken = match[4];
+
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = {
+                  amount,
+                  fromToken: fromToken.toLowerCase(),
+                  toToken: toToken.toLowerCase(),
+                };
+              }
+            }
+
+            // Handle bridge operations
+            if (intentType === "BRIDGE" && match.length >= 4) {
+              const amount = match[1];
+              const fromToken = match[2].toUpperCase();
+              const toToken = match[3].toUpperCase();
+
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = {
+                  amount,
+                  fromToken,
+                  toToken,
+                };
+              }
+            }
+
             // Handle withdraw with amount
             if (intentType === "WITHDRAW" && match.length >= 3) {
               const amount = match[2];
@@ -240,21 +323,15 @@ export class IntentParser {
               }
             }
 
-            // Handle buy USDC with amount
-            if (intentType === "BUY_USDC" && match.length >= 3) {
-              const amount = match[2];
-              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
-                intent.data = { amount };
-              }
-            }
+            // Handle buy USDC with amount (commented out)
+            // if (intentType === "BUY_USDC" && match.length >= 3) {
+            //   const amount = match[2];
+            //   if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+            //     intent.data = { amount };
+            //   }
+            // }
 
-            // Handle buy USDT with amount
-            if (intentType === "BUY_USDT" && match.length >= 3) {
-              const amount = match[2];
-              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
-                intent.data = { amount };
-              }
-            }
+            // USDT handling removed
 
             // Handle buy amount (default to cNGN)
             if (intentType === "BUY_AMOUNT" && match.length >= 2) {
@@ -297,6 +374,14 @@ export class IntentParser {
 
             // Handle payment confirmation
             if (intentType === "CONFIRM_PAYMENT" && match.length >= 3) {
+              const amount = match[2];
+              if (REGEX_PATTERNS.AMOUNT.test(amount)) {
+                intent.data = { amount };
+              }
+            }
+
+            // Handle card withdrawal with amount
+            if (intentType === "WITHDRAW_FROM_CARD" && match.length >= 3) {
               const amount = match[2];
               if (REGEX_PATTERNS.AMOUNT.test(amount)) {
                 intent.data = { amount };

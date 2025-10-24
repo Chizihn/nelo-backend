@@ -777,4 +777,416 @@ export class CardService {
       return false;
     }
   }
+
+  /**
+   * Deactivate/Delete a card and handle fund recovery
+   */
+  static async deactivateCard(
+    userId: string,
+    cardId: string,
+    transferFundsTo?: "wallet" | "bank"
+  ): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }> {
+    try {
+      // Get card details
+      const card = await prisma.virtualCard.findFirst({
+        where: {
+          id: cardId,
+          userId,
+          status: "ACTIVE",
+        },
+      });
+
+      if (!card) {
+        return {
+          success: false,
+          error: "Card not found or already deactivated",
+        };
+      }
+
+      // Check if card has funds
+      const cardBalance = Number(card.cNGNBalance);
+      let fundRecoveryTx = null;
+
+      if (cardBalance > 0) {
+        if (!transferFundsTo) {
+          return {
+            success: false,
+            error: `Card has ${cardBalance} cNGN balance. Please specify where to transfer funds: "wallet" or "bank"`,
+          };
+        }
+
+        // Get user details
+        const user = await UserService.getUserById(userId);
+        if (!user) {
+          return { success: false, error: "User not found" };
+        }
+
+        if (transferFundsTo === "wallet") {
+          // For now, use direct cNGN transfer (simplified for hackathon)
+          const transferResult = await CngnService.transfer(
+            user.encryptedPrivateKey,
+            user.walletAddress,
+            cardBalance.toString()
+          );
+
+          if (!transferResult.success) {
+            return {
+              success: false,
+              error: `Failed to transfer funds to wallet: ${transferResult.error}`,
+            };
+          }
+
+          fundRecoveryTx = transferResult.txHash;
+        } else if (transferFundsTo === "bank") {
+          // Initiate bank withdrawal
+          const { OffRampService } = await import("../payment/offRampService");
+
+          const withdrawResult = await OffRampService.initiateOffRamp({
+            userId,
+            amount: cardBalance.toString(),
+            bankAccount: {
+              accountNumber: "1234567890", // Default - should get from user's bank accounts
+              bankCode: "044", // Default - should get from user's bank accounts
+              accountName: "User Account", // Default - should get from user's bank accounts
+            },
+          });
+
+          if (!withdrawResult.success) {
+            return {
+              success: false,
+              error: `Failed to transfer funds to bank: ${withdrawResult.error}`,
+            };
+          }
+
+          fundRecoveryTx = withdrawResult.transactionId || "bank_transfer";
+        }
+
+        // Record fund recovery transaction
+        await prisma.transaction.create({
+          data: {
+            userId,
+            type: "WITHDRAWAL", // Use existing enum value
+            amount: cardBalance,
+            currency: "CNGN",
+            status: "COMPLETED",
+            txHash: fundRecoveryTx,
+            description: `Fund recovery from deactivated card to ${transferFundsTo}`,
+            metadata: {
+              cardId,
+              cardNumber: card.cardNumber,
+              transferDestination: transferFundsTo,
+              originalBalance: cardBalance,
+              transactionType: "CARD_FUND_RECOVERY",
+            },
+          },
+        });
+      }
+
+      // Deactivate the card
+      const deactivatedCard = await prisma.virtualCard.update({
+        where: { id: cardId },
+        data: {
+          status: "CLOSED", // Use existing enum value
+          cNGNBalance: 0, // Clear balance after fund recovery
+          metadata: {
+            ...((card.metadata as any) || {}),
+            deactivatedAt: new Date().toISOString(),
+            fundRecoveryTx,
+            fundRecoveryDestination: transferFundsTo,
+            originalBalance: cardBalance,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        data: {
+          card: deactivatedCard,
+          fundRecovery:
+            cardBalance > 0
+              ? {
+                  amount: cardBalance,
+                  destination: transferFundsTo,
+                  txHash: fundRecoveryTx,
+                }
+              : null,
+        },
+      };
+    } catch (error) {
+      logger.error("Error deactivating card:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Card deactivation failed",
+      };
+    }
+  }
+
+  /**
+   * Withdraw funds from card back to wallet
+   */
+  static async withdrawFromCard(
+    userId: string,
+    cardId: string,
+    amount: number
+  ): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }> {
+    try {
+      // Get card details
+      const card = await prisma.virtualCard.findFirst({
+        where: {
+          id: cardId,
+          userId,
+          status: "ACTIVE",
+        },
+      });
+
+      if (!card) {
+        return {
+          success: false,
+          error: "Card not found or not active",
+        };
+      }
+
+      const cardBalance = Number(card.cNGNBalance);
+      if (cardBalance < amount) {
+        return {
+          success: false,
+          error: `Insufficient card balance. Available: ${cardBalance} cNGN, Requested: ${amount} cNGN`,
+        };
+      }
+
+      // Get user details
+      const user = await UserService.getUserById(userId);
+      if (!user) {
+        return { success: false, error: "User not found" };
+      }
+
+      // Calculate fees (simplified for hackathon)
+      const serviceFee = amount * 0.01; // 1% service fee
+      const totalCost = amount + serviceFee;
+
+      if (cardBalance < totalCost) {
+        return {
+          success: false,
+          error: `Insufficient balance including fees. Need: ${totalCost} cNGN, Have: ${cardBalance} cNGN`,
+        };
+      }
+
+      // Transfer funds from card back to user wallet
+      const transferResult = await CngnService.transfer(
+        user.encryptedPrivateKey,
+        user.walletAddress,
+        amount.toString()
+      );
+
+      if (!transferResult.success) {
+        return {
+          success: false,
+          error: `Blockchain transfer failed: ${transferResult.error}`,
+        };
+      }
+
+      // Update card balance
+      const newBalance = cardBalance - totalCost;
+      await prisma.virtualCard.update({
+        where: { id: cardId },
+        data: {
+          cNGNBalance: newBalance,
+        },
+      });
+
+      // Record transaction
+      const transaction = await prisma.transaction.create({
+        data: {
+          userId,
+          type: "WITHDRAWAL",
+          amount: amount,
+          currency: "CNGN",
+          status: "COMPLETED",
+          txHash: transferResult.txHash,
+          description: `Withdrew ${amount} cNGN from card to wallet`,
+          metadata: {
+            cardId,
+            cardNumber: card.cardNumber,
+            serviceFee,
+            totalCost,
+            previousBalance: cardBalance,
+            newBalance,
+            transactionType: "CARD_WITHDRAWAL",
+          },
+        },
+      });
+
+      return {
+        success: true,
+        data: {
+          transaction,
+          newCardBalance: newBalance,
+          txHash: transferResult.txHash,
+          serviceFee,
+          totalCost,
+        },
+      };
+    } catch (error) {
+      logger.error("Error withdrawing from card:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Card withdrawal failed",
+      };
+    }
+  }
+
+  /**
+   * Get card transaction history
+   */
+  static async getCardTransactionHistory(
+    userId: string,
+    cardId: string,
+    limit: number = 20
+  ): Promise<{
+    success: boolean;
+    data?: any[];
+    error?: string;
+  }> {
+    try {
+      // Verify card ownership
+      const card = await prisma.virtualCard.findFirst({
+        where: {
+          id: cardId,
+          userId,
+        },
+      });
+
+      if (!card) {
+        return {
+          success: false,
+          error: "Card not found",
+        };
+      }
+
+      // Get transactions related to this card
+      const transactions = await prisma.transaction.findMany({
+        where: {
+          userId,
+          OR: [
+            {
+              metadata: {
+                path: ["cardId"],
+                equals: cardId,
+              },
+            },
+            {
+              description: {
+                contains: card.cardNumber.slice(-4),
+              },
+            },
+          ],
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: limit,
+      });
+
+      return {
+        success: true,
+        data: transactions.map((tx) => ({
+          id: tx.id,
+          type: tx.type,
+          amount: tx.amount,
+          currency: tx.currency,
+          status: tx.status,
+          description: tx.description,
+          txHash: tx.txHash,
+          createdAt: tx.createdAt,
+          metadata: tx.metadata,
+        })),
+      };
+    } catch (error) {
+      logger.error("Error getting card transaction history:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to get transaction history",
+      };
+    }
+  }
+
+  /**
+   * Freeze/Unfreeze a card (temporary deactivation)
+   */
+  static async freezeCard(
+    userId: string,
+    cardId: string,
+    freeze: boolean = true
+  ): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }> {
+    try {
+      const card = await prisma.virtualCard.findFirst({
+        where: {
+          id: cardId,
+          userId,
+        },
+      });
+
+      if (!card) {
+        return {
+          success: false,
+          error: "Card not found",
+        };
+      }
+
+      if (card.status === "CLOSED") {
+        return {
+          success: false,
+          error: "Cannot freeze/unfreeze a deactivated card",
+        };
+      }
+
+      const newStatus = freeze ? "SUSPENDED" : "ACTIVE"; // Use existing enum values
+
+      const updatedCard = await prisma.virtualCard.update({
+        where: { id: cardId },
+        data: {
+          status: newStatus,
+          metadata: {
+            ...((card.metadata as any) || {}),
+            lastStatusChange: new Date().toISOString(),
+            statusChangeReason: freeze
+              ? "User requested freeze"
+              : "User requested unfreeze",
+            isFrozen: freeze,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        data: updatedCard,
+      };
+    } catch (error) {
+      logger.error("Error freezing/unfreezing card:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Card freeze operation failed",
+      };
+    }
+  }
 }

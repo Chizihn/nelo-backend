@@ -19,6 +19,7 @@ export const CONSTANTS = {
 
   // Blockchain
   CNGN_DECIMALS: 6, // cNGN uses 6 decimals, not 18!
+  USDC_DECIMALS: 6, // USDC also uses 6 decimals
   CONFIRMATION_BLOCKS: 3,
 
   // Queue settings

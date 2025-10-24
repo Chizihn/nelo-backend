@@ -24,14 +24,14 @@ export class FlowHandler {
         SessionManager.advanceFlow(whatsappNumber);
         return `🔐 *Set Up Your Transaction PIN*
 
-Your PIN secures all transactions and sensitive operations.
+  Your PIN secures all transactions and sensitive operations.
 
-*PIN Requirements:*
-• Exactly 4 digits
-• No repeated numbers (1111, 2222, etc.)
-• No sequential numbers (1234, 4321, etc.)
+  *PIN Requirements:*
+  • Exactly 4 digits
+  • No repeated numbers (1111, 2222, etc.)
+  • No sequential numbers (1234, 4321, etc.)
 
-Please enter your 4-digit PIN:`;
+  Please enter your 4-digit PIN:`;
 
       case 2:
         // Validate and store PIN (hide PIN in response)
@@ -47,13 +47,13 @@ Please enter your 4-digit PIN:`;
           // Already processed this PIN, advance to confirmation
           return `✅ PIN received (••••)
 
-Please confirm your PIN by entering it again:`;
+  Please confirm your PIN by entering it again:`;
         }
 
         SessionManager.advanceFlow(whatsappNumber, { pin: message });
         return `✅ PIN received (••••)
 
-Please confirm your PIN by entering it again:`;
+  Please confirm your PIN by entering it again:`;
 
       case 3:
         // Confirm PIN (hide PIN in response)
@@ -61,7 +61,7 @@ Please confirm your PIN by entering it again:`;
           SessionManager.updateSession(whatsappNumber, { flowStep: 2 });
           return `❌ PINs don't match!
 
-Please enter your 4-digit PIN again:`;
+  Please enter your 4-digit PIN again:`;
         }
 
         SessionManager.advanceFlow(whatsappNumber, { confirmPin: message });
@@ -70,9 +70,9 @@ Please enter your 4-digit PIN again:`;
         const questions = PinService.getSecurityQuestions();
         let questionsList = `🔒 *Choose Security Question*
 
-This helps recover your PIN if forgotten:
+  This helps recover your PIN if forgotten:
 
-`;
+  `;
 
         questions.forEach((q, index) => {
           questionsList += `${index + 1}. ${q.question}\n`;
@@ -130,7 +130,7 @@ This helps recover your PIN if forgotten:
         } else {
           return `❌ PIN setup failed: ${setupResult.error}
 
-Please try again: "setup pin"`;
+  Please try again: "setup pin"`;
         }
 
       default:
@@ -156,23 +156,23 @@ Please try again: "setup pin"`;
         SessionManager.advanceFlow(whatsappNumber);
         return `🆔 *Submit KYC - Identity Verification*
 
-To comply with regulations and secure your account, I need to verify your identity.
+  To comply with regulations and secure your account, I need to verify your identity.
 
-*Benefits after verification:*
-✅ Create virtual cards
-✅ Higher transaction limits  
-✅ Buy/sell crypto
-✅ Send money globally
+  *Benefits after verification:*
+  ✅ Create virtual cards
+  ✅ Higher transaction limits  
+  ✅ Buy/sell crypto
+  ✅ Send money globally
 
-Please enter your *full name* (First Last):
-Example: "John Doe"`;
+  Please enter your *full name* (First Last):
+  Example: "John Doe"`;
 
       case 2:
         // Full name validation
         const fullName = message.trim();
         if (!fullName || fullName.length < 3 || !fullName.includes(" ")) {
           return `❌ Please enter your full name with first and last name:
-Example: "John Doe" or "Mary Jane Smith"`;
+  Example: "John Doe" or "Mary Jane Smith"`;
         }
 
         const nameParts = fullName.split(" ");
@@ -187,8 +187,8 @@ Example: "John Doe" or "Mary Jane Smith"`;
 
         return `✅ Name: ${fullName}
 
-Optional: Enter your *ID number* or type "skip":
-(BVN, NIN, Driver's License, etc.)`;
+  Optional: Enter your *ID number* or type "skip":
+  (BVN, NIN, Driver's License, etc.)`;
 
       case 3:
         // ID number (optional) and complete KYC
@@ -214,7 +214,7 @@ Optional: Enter your *ID number* or type "skip":
         } else {
           return `❌ KYC submission failed: ${kycResult.error}
 
-Please try again: "submit kyc"`;
+  Please try again: "submit kyc"`;
         }
 
       default:
@@ -471,20 +471,23 @@ Please try again: "submit kyc"`;
           if (sendResult.success) {
             const fees = sendResult.feesCollected;
             return `✅ *Transfer Successful!*
-💸 Sent: ${pendingTx.data.amount} cNGN
-👤 To: ${pendingTx.data.recipient}
-💰 Service fee: ${fees?.serviceFee.toLocaleString()} cNGN
-⛽ Gas fee: ${fees?.gasFeeNGN.toLocaleString()} cNGN
-💳 Total cost: ${fees?.totalFees.toLocaleString()} cNGN
-🔗 TX: ${sendResult.txHash?.slice(0, 10)}...
-Your transfer is complete! 🎉`;
+  💸 Sent: ${pendingTx.data.amount} cNGN
+  👤 To: ${pendingTx.data.recipient}
+  💰 Service fee: ${fees?.serviceFee.toLocaleString()} cNGN
+  ⛽ Gas fee: ${fees?.gasFeeNGN.toLocaleString()} cNGN
+  💳 Total cost: ${fees?.totalFees.toLocaleString()} cNGN
+  🔗 TX: ${sendResult.txHash?.slice(0, 10)}...
+  Your transfer is complete! 🎉`;
           } else {
             return `❌ Transfer failed: ${sendResult.error}
-Please try again or contact support.`;
+  Please try again or contact support.`;
           }
 
         case "DEPOSIT_TO_CARD":
-          const depositResult = await CardService.depositToCard(
+          const { CardService: CardServiceDeposit } = await import(
+            "../card/cardService"
+          );
+          const depositResult = await CardServiceDeposit.depositToCard(
             pendingTx.data.cardId,
             pendingTx.data.amount
           );
@@ -515,6 +518,29 @@ Please try again or contact support.`;
             return `❌ Withdrawal failed: ${cashOutResult.error}`;
           }
 
+        case "CARD_WITHDRAWAL":
+          const { CardService } = await import("../card/cardService");
+
+          const cardWithdrawResult = await CardService.withdrawFromCard(
+            session.userId,
+            pendingTx.data.cardId,
+            pendingTx.data.amount
+          );
+
+          if (cardWithdrawResult.success) {
+            const data = cardWithdrawResult.data;
+            return `✅ *Card Withdrawal Successful!*\n\n💸 Amount: ${pendingTx.data.amount.toLocaleString()} cNGN\n💳 From: ****${pendingTx.data.cardNumber.slice(
+              -4
+            )}\n💰 To: Your wallet\n\n${
+              data.fees.breakdown
+            }\n\nNew card balance: ${data.newCardBalance.toLocaleString()} cNGN\n🔗 TX: ${data.txHash?.slice(
+              0,
+              10
+            )}...\n\nFunds are now in your wallet! 🎉`;
+          } else {
+            return `❌ Card withdrawal failed: ${cardWithdrawResult.error}`;
+          }
+
         default:
           return `❌ Unknown transaction type: ${pendingTx.type}`;
       }
@@ -537,6 +563,10 @@ Please try again or contact support.`;
         return `💳 Fund card with ${data.amount} cNGN`;
       case "CASH_OUT":
         return `💸 Withdraw ${data.amount} cNGN to bank`;
+      case "CARD_WITHDRAWAL":
+        return `💸 Withdraw ${
+          data.amount
+        } cNGN from card ****${data.cardNumber?.slice(-4)} to wallet`;
       default:
         return `Transaction: ${type}`;
     }

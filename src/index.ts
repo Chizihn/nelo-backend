@@ -2,15 +2,12 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
-import { CONSTANTS } from "./utils/constants";
 
 // Import routes
 import webhookRoutes from "./routes/webhook.routes";
 import cardRoutes from "./routes/card.routes";
 import userRoutes from "./routes/user.routes";
 import transactionRoutes from "./routes/transaction.routes";
-import paymentRoutes from "./routes/payment.routes";
-import adminRoutes from "./routes/admin.routes";
 import { env } from "./config/env";
 import logger from "./utils/logger";
 
@@ -35,9 +32,7 @@ app.use(
 app.use(
   cors({
     origin:
-      env.NODE_ENV === "production"
-        ? ["https://your-frontend-domain.com"]
-        : true,
+      env.NODE_ENV === "production" ? [`${process.env.FRONTEND_URL}`] : true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization", "x-api-key"],
@@ -98,8 +93,6 @@ app.use("/webhook", webhookRoutes);
 app.use("/api/cards", cardRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/transactions", transactionRoutes);
-app.use("/api/payment", paymentRoutes);
-app.use("/admin", adminRoutes);
 
 // Root endpoint
 app.get("/", (req, res) => {
@@ -126,12 +119,11 @@ const server = app.listen(PORT, () => {
   // logger.info(`📱 Environment: ${env.NODE_ENV}`);
   // logger.info(`🔗 Webhook URL: http://localhost:${PORT}/webhook/whatsapp`);
   // logger.info(`💳 Virtual Card Backend is ready!`);
-
   // Start message worker for periodic user engagement
-  if (env.NODE_ENV === "production") {
-    const { messageWorker } = require("./services/worker/messageWorker");
-    messageWorker.start();
-  }
+  // if (env.NODE_ENV === "production") {
+  //   const { messageWorker } = require("./services/worker/messageWorker");
+  //   messageWorker.start();
+  // }
 });
 
 // Graceful shutdown

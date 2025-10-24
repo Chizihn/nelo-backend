@@ -4,19 +4,19 @@ import {
   CONTRACT_ABIS,
   provider,
   GAS_SETTINGS,
-  CHAIN_CONFIG,
+  SUPPORTED_TOKENS,
 } from "@/config/blockchain";
 import { WalletService } from "./walletService";
 import { TokenBalance, ContractCallResult } from "@/types/blockchain.types";
 import { logger } from "@/utils/logger";
 import { CONSTANTS } from "@/utils/constants";
 
-export class CngnService {
+export class UsdcService {
   private static getContract(
     signerOrProvider?: ethers.Signer | ethers.Provider
   ) {
-    // Use environment variable for cNGN address
-    const contractAddress = CONTRACT_ADDRESSES.CNGN_TOKEN;
+    // Use environment variable for USDC address
+    const contractAddress = CONTRACT_ADDRESSES.USDC_TOKEN;
 
     if (
       !contractAddress ||
@@ -24,19 +24,19 @@ export class CngnService {
       !contractAddress.startsWith("0x")
     ) {
       throw new Error(
-        `cNGN token contract address not configured. Set CNGN_TOKEN_ADDRESS env var.`
+        `USDC token contract address not configured. Set USDC_TOKEN_ADDRESS env var.`
       );
     }
 
     return new ethers.Contract(
       contractAddress,
-      CONTRACT_ABIS.CNGN_TOKEN,
+      CONTRACT_ABIS.USDC_TOKEN,
       signerOrProvider || provider
     );
   }
 
   /**
-   * Get cNGN balance for an address
+   * Get USDC balance for an address
    */
   static async getBalance(address: string): Promise<TokenBalance> {
     try {
@@ -56,13 +56,13 @@ export class CngnService {
         name,
       };
     } catch (error) {
-      logger.error("Failed to get cNGN balance:", error);
-      throw new Error("Failed to fetch cNGN balance");
+      logger.error("Failed to get USDC balance:", error);
+      throw new Error("Failed to fetch USDC balance");
     }
   }
 
   /**
-   * Transfer cNGN tokens
+   * Transfer USDC tokens
    */
   static async transfer(
     encryptedPrivateKey: string,
@@ -73,15 +73,18 @@ export class CngnService {
       const wallet = WalletService.getWalletInstance(encryptedPrivateKey);
       const contract = this.getContract(wallet);
 
-      // Convert amount to wei (18 decimals for cNGN)
-      const amountWei = ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS);
+      // Convert amount to wei (6 decimals for USDC)
+      const amountWei = ethers.parseUnits(
+        amount,
+        SUPPORTED_TOKENS.USDC.decimals
+      );
 
       // Check balance first
       const balance = await contract.balanceOf(wallet.address);
       if (balance < amountWei) {
         return {
           success: false,
-          error: "Insufficient cNGN balance",
+          error: "Insufficient USDC balance",
         };
       }
 
@@ -90,7 +93,7 @@ export class CngnService {
         ...GAS_SETTINGS,
       });
 
-      logger.info(`cNGN transfer initiated: ${tx.hash}`);
+      logger.info(`USDC transfer initiated: ${tx.hash}`);
 
       // Add timeout and null check
       const receipt = await Promise.race([
@@ -117,7 +120,7 @@ export class CngnService {
         gasUsed: receipt.gasUsed.toString(),
       };
     } catch (error) {
-      logger.error("cNGN transfer failed:", error);
+      logger.error("USDC transfer failed:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Transfer failed",
@@ -137,13 +140,16 @@ export class CngnService {
       const wallet = WalletService.getWalletInstance(encryptedPrivateKey);
       const contract = this.getContract(wallet);
 
-      const amountWei = ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS);
+      const amountWei = ethers.parseUnits(
+        amount,
+        SUPPORTED_TOKENS.USDC.decimals
+      );
 
       const tx = await contract.approve(spenderAddress, amountWei, {
         ...GAS_SETTINGS,
       });
 
-      logger.info(`cNGN approval initiated: ${tx.hash}`);
+      logger.info(`USDC approval initiated: ${tx.hash}`);
 
       const receipt = await tx.wait(CONSTANTS.CONFIRMATION_BLOCKS);
 
@@ -153,7 +159,7 @@ export class CngnService {
         gasUsed: receipt.gasUsed.toString(),
       };
     } catch (error) {
-      logger.error("cNGN approval failed:", error);
+      logger.error("USDC approval failed:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Approval failed",
@@ -171,9 +177,9 @@ export class CngnService {
     try {
       const contract = this.getContract();
       const allowance = await contract.allowance(ownerAddress, spenderAddress);
-      return ethers.formatUnits(allowance, CONSTANTS.CNGN_DECIMALS);
+      return ethers.formatUnits(allowance, SUPPORTED_TOKENS.USDC.decimals);
     } catch (error) {
-      logger.error("Failed to get allowance:", error);
+      logger.error("Failed to get USDC allowance:", error);
       throw new Error("Failed to fetch allowance");
     }
   }
@@ -202,17 +208,17 @@ export class CngnService {
         decimals: Number(decimals),
       };
     } catch (error) {
-      logger.error("Failed to get token info:", error);
+      logger.error("Failed to get USDC token info:", error);
       throw new Error("Failed to fetch token information");
     }
   }
 
   /**
-   * Format cNGN amount for display
+   * Format USDC amount for display
    */
   static formatAmount(
     amount: string,
-    decimals: number = CONSTANTS.CNGN_DECIMALS
+    decimals: number = SUPPORTED_TOKENS.USDC.decimals
   ): string {
     try {
       const formatted = ethers.formatUnits(amount, decimals);
@@ -234,18 +240,20 @@ export class CngnService {
   }
 
   /**
-   * Parse cNGN amount from string
+   * Parse USDC amount from string
    */
   static parseAmount(amount: string): string {
     try {
-      return ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS).toString();
+      return ethers
+        .parseUnits(amount, SUPPORTED_TOKENS.USDC.decimals)
+        .toString();
     } catch (error) {
       throw new Error("Invalid amount format");
     }
   }
 
   /**
-   * Validate cNGN amount
+   * Validate USDC amount
    */
   static isValidAmount(amount: string): boolean {
     try {
@@ -259,46 +267,9 @@ export class CngnService {
   }
 
   /**
-   * Mint cNGN tokens to user (for onramp)
-   * Uses dedicated minter wallet — NOT deployer
+   * NO MINT FUNCTION - USDC is real token
+   * Users get USDC from faucet.circle.com or other sources
    */
-  static async mintToUser(
-    userAddress: string,
-    amount: string
-  ): Promise<ContractCallResult> {
-    try {
-      const minterKey = process.env.CNGN_MINTER_PRIVATE_KEY;
-      if (!minterKey) {
-        throw new Error("CNGN_MINTER_PRIVATE_KEY not set in .env");
-      }
-
-      const wallet = new ethers.Wallet(minterKey, provider);
-      const contract = this.getContract(wallet);
-
-      const amountWei = ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS);
-
-      logger.info(
-        `Minting ${amount} cNGN to ${userAddress} from ${wallet.address}`
-      );
-
-      const tx = await contract.mint(userAddress, amountWei, {
-        ...GAS_SETTINGS,
-      });
-
-      const receipt = await tx.wait();
-
-      logger.info(`cNGN minted! TX: ${receipt.hash}`);
-      return {
-        success: true,
-        txHash: receipt.hash,
-        gasUsed: receipt.gasUsed.toString(),
-      };
-    } catch (error) {
-      logger.error("Mint failed:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : "Mint failed",
-      };
-    }
-  }
+  // static async mintToUser() - NOT IMPLEMENTED
+  // USDC cannot be minted by our service
 }

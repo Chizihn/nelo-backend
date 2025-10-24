@@ -2,8 +2,6 @@ import { WhatsAppMessage, MessageContext } from "@/types/whatsapp.types";
 import { UserService } from "../user/userService";
 import { CardService } from "../card/cardService";
 import { BasenameService } from "../blockchain/basenameService";
-import { OnRampService } from "../payment/onRampService";
-import { IntegratedOffRampService } from "../payment/integratedOffRampService";
 import { MockFiatService } from "../payment/mockFiatService";
 import { KYCService } from "../kyc/kycService";
 import { PinService } from "../security/pinService";
@@ -15,6 +13,7 @@ import { ResponseBuilder } from "./responseBuilder";
 import { SessionManager, UserSession } from "./sessionManager";
 import { FlowHandler } from "./flowHandler";
 import { WhatsAppService } from "./whatsappService";
+import { TokenService } from "../blockchain/tokenService";
 
 export class MessageHandler {
   private intentParser: IntentParser;
@@ -244,6 +243,21 @@ Balance: ${selectedCard.cNGNBalance} cNGN
       case "VIEW_CARD":
         return await this.handleViewCard(user!);
 
+      case "DELETE_CARD":
+        return await this.handleDeleteCard(user!);
+
+      case "FREEZE_CARD":
+        return await this.handleFreezeCard(user!);
+
+      case "UNFREEZE_CARD":
+        return await this.handleUnfreezeCard(user!);
+
+      case "WITHDRAW_FROM_CARD":
+        return await this.handleWithdrawFromCard(user!, data);
+
+      case "CARD_HISTORY":
+        return await this.handleCardHistory(user!);
+
       case "SEND_MONEY":
         return await this.handleSendMoney(user!, data);
 
@@ -265,6 +279,12 @@ Balance: ${selectedCard.cNGNBalance} cNGN
       case "BUY_CNGN":
         return await this.handleBuyCngn(user!, data);
 
+      case "BUY_USDC":
+        return await this.handleBuyUsdc(user!, data);
+
+      case "BRIDGE":
+        return await this.handleBridge(user!, data);
+
       case "WITHDRAW":
         return await this.handleWithdraw(user!, data);
 
@@ -273,15 +293,6 @@ Balance: ${selectedCard.cNGNBalance} cNGN
 
       case "SUBMIT_KYC":
         return await this.handleSubmitKYC(user!, data);
-
-      case "BUY_USDC":
-        return await this.handleBuyUSDC(user!, data);
-
-      case "BUY_USDT":
-        return await this.handleBuyUSDT(user!, data);
-
-      case "BUY_CRYPTO":
-        return await this.handleBuyCrypto(user!);
 
       case "BUY_AMOUNT":
         return await this.handleBuyAmount(user!, data);
@@ -304,6 +315,9 @@ Balance: ${selectedCard.cNGNBalance} cNGN
       case "RESET_PIN":
         return await this.handleResetPin(user!);
 
+      case "BRIDGE_TOKENS":
+        return await this.handleBridgeTokens(user!, data);
+
       case "CANCEL":
         return this.handleCancel();
 
@@ -311,15 +325,33 @@ Balance: ${selectedCard.cNGNBalance} cNGN
         logger.warn(
           `Unknown intent: ${type} for message: "${context.message.text?.body}"`
         );
-        return `❓ I didn't understand "${context.message.text?.body}".
 
-Type "help" to see all available commands.
+        // Get smart suggestions
+        const { SuggestionEngine } = await import("./suggestionEngine");
+        const similarCommands = SuggestionEngine.getSimilarCommands(
+          context.message.text?.body || ""
+        );
+        const smartSuggestions = await SuggestionEngine.getSmartSuggestions(
+          user!.id
+        );
 
-*Quick commands:*
-• balance - Check your crypto
-• history - View transactions  
-• create card - Get virtual card
-• buy cngn - Buy crypto`;
+        let response = `❓ I didn't understand "${context.message.text?.body}".`;
+
+        if (similarCommands.length > 0) {
+          response += `\n\n*🤔 Did you mean:*\n`;
+          similarCommands.forEach((cmd) => {
+            response += `• ${cmd}\n`;
+          });
+        }
+
+        response += `\n*💡 Popular commands:*\n`;
+        smartSuggestions.slice(0, 3).forEach((cmd) => {
+          response += `• ${cmd}\n`;
+        });
+
+        response += `\nType "help" for all commands 📋`;
+
+        return response;
     }
   }
 
@@ -406,23 +438,28 @@ Type "setup pin" to secure your account.
       const result = await CardService.createCard(user.id);
 
       if (result.success) {
-        return `🎉 *Virtual Card Created Successfully!*
+        // Get next action suggestions
+        const { SuggestionEngine } = await import("./suggestionEngine");
+        const nextActions = SuggestionEngine.getNextActions("card_created");
+
+        let response = `🎉 *Virtual Card Created Successfully!*
 
 💳 Card Number: ****${result.data.cardNumber.slice(-4)}
 🏷️ Card Type: ${result.data.brand?.toUpperCase() || "VISA"}
 💰 Balance: 0 cNGN (empty)
 📱 Status: Active
 
-*Next Steps:*
-1. 💰 Fund card: "buy 10000" (₦10,000 cNGN)
-2. 👀 View details: "view card"
-3. 📊 Check balance: "balance"
+*🚀 What's next?*`;
 
-*After funding:*
-• Send money: "send 1000 to alice.base.eth"
-• Withdraw: "withdraw 5000"
+        nextActions.forEach((action, index) => {
+          response += `\n${index + 1}. ${action}`;
+        });
+
+        response += `\n\n*💡 Pro tip:* Fund your card first with "buy 10000" to start using it!
 
 Your card is ready! 🚀`;
+
+        return response;
       } else {
         if (
           result.error?.includes("KYC") ||
@@ -443,7 +480,7 @@ Type "submit kyc" to complete your verification and create your card.`;
   }
 
   /**
-   * Handle check balance intent - Multi-token support (cNGN + USDC)
+   * Handle check balance intent - Both cNGN and USDC
    */
   private async handleCheckBalance(user: any): Promise<string> {
     try {
@@ -467,15 +504,9 @@ Type "submit kyc" to complete your verification and create your card.`;
 
         // Get USDC balance
         try {
-          const { ethers } = await import("ethers");
-          const provider = new ethers.JsonRpcProvider(process.env.BASE_RPC_URL);
-          const usdcContract = new ethers.Contract(
-            "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Base Sepolia USDC
-            ["function balanceOf(address) view returns (uint256)"],
-            provider
-          );
-          const usdcBalance = await usdcContract.balanceOf(user.walletAddress);
-          balances.usdc = parseFloat(ethers.formatUnits(usdcBalance, 6)); // USDC has 6 decimals
+          const { UsdcService } = await import("../blockchain/usdcService");
+          const usdcBalance = await UsdcService.getBalance(user.walletAddress);
+          balances.usdc = parseFloat(usdcBalance.balance);
           logger.info(`Retrieved USDC balance: ${balances.usdc}`);
         } catch (error) {
           logger.warn("Failed to get USDC balance:", error);
@@ -500,8 +531,6 @@ Type "submit kyc" to complete your verification and create your card.`;
     usdc: number;
     cardCount: number;
   }): string {
-    const totalValue = balances.cngn + balances.usdc * 1600; // Rough NGN conversion for display
-
     if (balances.cngn === 0 && balances.usdc === 0) {
       return `💰 *Your Portfolio*
 
@@ -511,10 +540,10 @@ Type "submit kyc" to complete your verification and create your card.`;
 
 *Get started:*
 • Buy cNGN: "buy 10000"
-• Buy USDC: "buy usdc"
+• Get USDC: Visit faucet.circle.com
 • Create card: "create card"
 
-*Supported tokens:* cNGN (Nigerian Naira) and USDC (US Dollar) on Base Sepolia`;
+*Supported tokens:* cNGN & USDC on Base Sepolia`;
     }
 
     let response = `💰 *Your Portfolio*\n\n`;
@@ -527,7 +556,7 @@ Type "submit kyc" to complete your verification and create your card.`;
       response += `💵 USDC: ${balances.usdc.toLocaleString()} ($${balances.usdc.toLocaleString()})\n`;
     }
 
-    response += `💳 Active Cards: ${balances.cardCount}\n\n*Available actions:*\n• Send cNGN: "send 1000 to alice.base.eth"\n• Send USDC: "send 50 usdc to alice.base.eth"\n• Create card: "create card"\n• View history: "history"`;
+    response += `💳 Active Cards: ${balances.cardCount}\n\n*Available actions:*\n• Send tokens: "send 1000 cngn to alice.base.eth"\n• Send USDC: "send 10 usdc to bob.base.eth"\n• Create card: "create card"\n• View history: "history"`;
 
     return response;
   }
@@ -755,14 +784,10 @@ Example: "John Doe"`;
         return "❌ Maximum purchase is ₦1,000,000";
       }
 
-      // Use IntegratedOnRampService for complete flow
-      const { IntegratedOnRampService } = await import(
-        "../payment/integratedOnRampService"
-      );
-
-      const result = await IntegratedOnRampService.depositNGN({
+      // Use MockFiatService for NGN deposit flow
+      const result = await MockFiatService.initiateFiatToCNGN({
         userId: user.id,
-        amountNGN: amountNum,
+        amount: amountNum,
         paymentMethod: "BANK_TRANSFER",
       });
 
@@ -774,9 +799,6 @@ Example: "John Doe"`;
 🔗 Rate: 1 NGN = 1 cNGN (no fees!)
 
 ${result.paymentInstructions}
-
-*After making the bank transfer:*
-Type "paid ${amount}" to confirm your payment
 
 ⚠️ Transfer the exact amount: ₦${amountNum.toLocaleString()}`;
       } else {
@@ -791,89 +813,133 @@ Try again with: "buy cngn"`;
   }
 
   /**
-   * Handle Buy Crypto - Show available options
+   * Handle buy USDC intent - User gets from faucet
    */
-  private async handleBuyCrypto(user: any): Promise<string> {
+  private async handleBuyUsdc(user: any, data: any): Promise<string> {
     try {
-      return `💰 *Buy Crypto*
+      const amount = data?.amount || "10"; // Default 10 USDC
+      const amountNum = parseFloat(amount);
 
-*Available on Base Sepolia:*
-
-🇳🇬 *cNGN (Nigerian Naira Token)*
-• Pay with: Bank transfer (NGN)
-• Rate: 1 NGN = 1 cNGN
-• Command: "buy cngn" or "buy 10000"
-
-💵 *USDC (USD Coin)*
-• Pay with: Card, Bank transfer (USD)
-• Rate: 1 USD = 1 USDC
-• Command: "buy usdc"
-
-*Not Available:*
-💰 USDT (Tether) - Not on Base Sepolia
-
-*Quick Start:*
-• "buy 10000" - Buy ₦10,000 cNGN (Nigerians)
-• "buy usdc" - Buy USD Coin (International)
-
-*Choose based on your location:*
-🇳🇬 Nigeria → cNGN
-🌍 International → USDC`;
-    } catch (error) {
-      logger.error("Error handling buy crypto:", error);
-      return MESSAGE_TEMPLATES.ERROR_GENERIC;
-    }
-  }
-
-  /**
-   * Handle Buy Amount - Default to cNGN for Nigerian users
-   */
-  private async handleBuyAmount(user: any, data: any): Promise<string> {
-    try {
-      const amount = data?.amount || "10000";
-
-      // Default to cNGN for amount-only purchases (Nigerian focus)
-      return await this.handleBuyCngn(user, { amount });
-    } catch (error) {
-      logger.error("Error handling buy amount:", error);
-      return MESSAGE_TEMPLATES.ERROR_GENERIC;
-    }
-  }
-
-  /**
-   * Handle setup PIN
-   */
-  private async handleSetupPin(user: any): Promise<string> {
-    try {
-      const hasPinSetup = await PinService.hasPinSetup(user.id);
-      if (hasPinSetup) {
-        return `✅ *PIN Already Set Up*
-
-Your transaction PIN is already configured.
-
-You can:
-• Create cards: "create card"
-• Buy crypto: "buy cngn"
-• Reset PIN: "reset pin"
-
-Type "create card" to get started! 🚀`;
+      // Validate amount
+      if (amountNum < 1) {
+        return "❌ Minimum USDC amount is $1";
       }
 
-      // Start PIN setup flow
-      SessionManager.startFlow(user.whatsappNumber, "PIN_SETUP");
+      if (amountNum > 10000) {
+        return "❌ Maximum USDC amount is $10,000";
+      }
 
-      return `🔐 *Set Up Your Transaction PIN*
+      // USDC cannot be minted - user must get from faucet
+      return `💵 *Get ${amountNum.toLocaleString()} USDC*
 
-Your PIN secures all transactions and sensitive operations.
+USDC is a real token on Base Sepolia. You can get it from:
 
-*PIN Requirements:*
-• Exactly 4 digits
-• No repeated numbers (1111, 2222, etc.)
-• No sequential numbers (1234, 4321, etc.)
+🚰 **Circle Faucet (Recommended):**
+Visit: https://faucet.circle.com
+• Connect your wallet: \`${user.walletAddress}\`
+• Request USDC tokens
+• Free for testnet
 
-Please enter your 4-digit PIN:`;
+💰 **After getting USDC:**
+• Deposit to Nelo: Use our deposit feature
+• Send USDC: "send 10 usdc to alice.base.eth"
+• Check balance: "balance"
+
+⚠️ **Important:** 
+• This is testnet USDC (no real value)
+• Use Base Sepolia network
+• Your wallet: \`${user.walletAddress}\`
+
+*Need help?* Contact support:
+📧 nelovirtualcards@gmail.com`;
     } catch (error) {
-      logger.error("Error handling PIN setup:", error);
+      logger.error("Error handling buy USDC:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
+  }
+
+  /**
+   * Handle bridge/swap between tokens
+   */
+  private async handleBridge(user: any, data: any): Promise<string> {
+    try {
+      if (!data || !data.amount || !data.fromToken || !data.toToken) {
+        return `🌉 *Bridge Tokens*
+
+Swap between cNGN and USDC instantly:
+
+*Format:*
+"bridge [amount] [from] to [to]"
+
+*Examples:*
+• bridge 1000 cngn to usdc
+• swap 10 usdc for cngn
+• convert 500 cngn to usdc
+
+*Current Rate:*
+• 1 USDC = ~1,500 cNGN
+• 1 cNGN = ~0.00067 USDC
+
+*Bridge Fee:* 0.3%`;
+      }
+
+      // Check KYC and PIN
+      const kycStatus = await UserService.getKYCStatus(user.id);
+      if (!kycStatus.verified) {
+        return `🔒 *KYC Required for Bridge*
+
+Complete KYC verification first to bridge tokens.
+
+Type "submit kyc" to get started.`;
+      }
+
+      const hasPinSetup = await PinService.hasPinSetup(user.id);
+      if (!hasPinSetup) {
+        return `🔐 *PIN Required for Bridge*
+
+Set up your security PIN first to bridge tokens.
+
+Type "setup pin" to secure your account.`;
+      }
+
+      const { amount, fromToken, toToken } = data;
+
+      // Validate tokens
+      if (
+        !TokenService.isSupported(fromToken) ||
+        !TokenService.isSupported(toToken)
+      ) {
+        return `❌ Unsupported token. Use: cNGN or USDC`;
+      }
+
+      if (fromToken === toToken) {
+        return `❌ Cannot bridge to the same token`;
+      }
+
+      // Get estimate
+      const { BridgeService } = await import("../blockchain/bridgeService");
+      const estimate = await BridgeService.estimateBridge(
+        fromToken as "cNGN" | "USDC",
+        toToken as "cNGN" | "USDC",
+        amount
+      );
+
+      // Use secure transaction flow
+      return await FlowHandler.handleSecureTransaction(
+        user.whatsappNumber,
+        "BRIDGE",
+        {
+          amount,
+          fromToken,
+          toToken,
+          toAmount: estimate.toAmount,
+          rate: estimate.rate,
+          fee: estimate.fee,
+        },
+        SessionManager.getSession(user.whatsappNumber)!
+      );
+    } catch (error) {
+      logger.error("Error handling bridge:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
     }
   }
@@ -916,7 +982,7 @@ Next step: Set up your security PIN
 
 *After PIN setup:*
 • Create card: "create card"
-• Buy crypto: "buy cngn"
+• Buy crypto: "buy cngn" or "buy usdc"
 
 Type "setup pin" to continue! 🔒
 
@@ -932,7 +998,7 @@ Ready to create your virtual card?
 
 *💳 Next Steps:*
 • Create card: "create card"
-• Buy crypto: "buy cngn"
+• Buy crypto: "buy cngn" or "buy usdc"
 • Check balance: "balance"
 
 Type "create card" to get started! 🚀
@@ -946,8 +1012,9 @@ Type "create card" to get started! 🚀
 
 *💰 Buy & Manage Crypto:*
 • buy cngn - Buy Nigerian Naira (cNGN)
-• buy usdc - Buy USD Coin
+• buy usdc - Get USDC from faucet
 • balance - Check your portfolio
+• bridge 1000 cngn to usdc - Swap tokens
 
 *💳 Cards & Payments:*
 • my cards - View your cards
@@ -956,7 +1023,7 @@ Type "create card" to get started! 🚀
 
 *🏦 Banking:*
 • add bank - Link Nigerian bank
-• withdraw 5000 - Cash out to bank
+• withdraw  - Wwithdraw to bank
 
 *📊 Account:*
 • history - View transactions
@@ -987,14 +1054,14 @@ Need help with anything specific? 💬`;
 Send crypto to anyone on Base network:
 
 *Format:*
-"send [amount] to [address/basename]"
+"send [amount] [token] to [address/basename]"
 
 *Examples:*
-• send 1000 to alice.base.eth
-• send 50 usdc to 0x1234...
-• send 100 to bob.base.eth
+• send 1000 cngn to alice.base.eth
+• send 10 usdc to bob.base.eth
+• send 500 to alice.base.eth (defaults to cNGN)
 
-*Supported tokens:* cNGN, USDC`;
+*Supported tokens:* cNGN & USDC`;
       }
 
       // Check KYC status
@@ -1053,10 +1120,15 @@ Your wallet address:
 
 You can:
 1. Buy cNGN: "buy cngn"
-2. Transfer from another wallet
-3. Receive from friends
+2. Get USDC: "buy usdc" (from faucet)
+3. Transfer from another wallet
+4. Receive from friends
 
-⚠️ Only send cNGN tokens to this address on Base network.`;
+⚠️ **Supported tokens on Base Sepolia:**
+• cNGN (Nigerian Naira Token)
+• USDC (USD Coin)
+
+Only send these tokens to this address!`;
   }
 
   private async handleProfile(user: any): Promise<string> {
@@ -1090,76 +1162,223 @@ You can:
     }
   }
 
-  private async handleBuyUSDC(user: any, data: any): Promise<string> {
+  /**
+   * Handle setup PIN
+   */
+  private async handleSetupPin(user: any): Promise<string> {
     try {
-      const amount = data?.amount || "100"; // Default $100
-      const amountNum = parseFloat(amount);
+      const hasPinSetup = await PinService.hasPinSetup(user.id);
+      if (hasPinSetup) {
+        return `✅ *PIN Already Set Up*
 
-      // Validate amount
-      if (amountNum < 10) {
-        return "❌ Minimum purchase is $10 USDC";
+Your transaction PIN is already configured.
+
+You can:
+• Create cards: "create card"
+• Buy crypto: "buy cngn"
+• Reset PIN: "reset pin"
+
+Type "create card" to get started! 🚀`;
       }
 
-      if (amountNum > 10000) {
-        return "❌ Maximum purchase is $10,000 USDC";
-      }
+      // Start PIN setup flow
+      SessionManager.startFlow(user.whatsappNumber, "PIN_SETUP");
 
-      // Use OnRampService for USDC purchases
-      const result = await OnRampService.initiateUSDCPurchase({
-        userId: user.id,
-        amountUSD: amountNum,
-        paymentMethod: "CARD",
-      });
+      return `🔐 *Set Up Your Transaction PIN*
 
-      if (result.success) {
-        return `💵 *Buy ${amountNum} USDC*
+Your PIN secures all transactions and sensitive operations.
 
-💰 Cost: $${amountNum} USD
-🪙 You'll receive: ${amountNum} USDC
-⚡ Network: Base Sepolia
-🔗 Rate: 1 USD = 1 USDC
+*PIN Requirements:*
+• Exactly 4 digits
+• No repeated numbers (1111, 2222, etc.)
+• No sequential numbers (1234, 4321, etc.)
 
-${result.paymentInstructions}
-
-*What is USDC?*
-USD Coin - A stable cryptocurrency backed 1:1 by US Dollars. Perfect for international transactions.`;
-      } else {
-        return `❌ Failed to initiate USDC purchase: ${result.error}
-
-Try again with: "buy usdc"`;
-      }
-
-      return `💵 *Buy ${amountNum} USDC*
-
-💰 Cost: $${amountNum} USD
-🪙 You'll receive: ${amountNum} USDC
-⚡ Network: Base Sepolia
-🔗 Rate: 1 USD = 1 USDC
-
-*Ready to purchase!*
-Click the MoonPay link below to buy with your card:
-
-*What is USDC?*
-USD Coin - A stable cryptocurrency backed 1:1 by US Dollars. Perfect for international transactions.`;
+Please enter your 4-digit PIN:`;
     } catch (error) {
-      logger.error("Error handling buy USDC:", error);
+      logger.error("Error handling PIN setup:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
     }
   }
 
-  private async handleBuyUSDT(user: any, data: any): Promise<string> {
-    return `💰 *USDT Not Available*
+  /**
+   * Handle Buy Amount - Default to cNGN for Nigerian users
+   */
+  private async handleBuyAmount(user: any, data: any): Promise<string> {
+    try {
+      const amount = data?.amount || "10000";
 
-USDT is not deployed on Base Sepolia testnet yet.
-
-*Available now:*
-• cNGN (Nigerian Naira): "buy cngn"
-• Check your balance: "balance"
-
-*Why only cNGN?*
-We're on Base Sepolia testnet where only cNGN is deployed.
-USDC/USDT will be available when we move to mainnet.`;
+      // Default to cNGN for amount-only purchases (Nigerian focus)
+      return await this.handleBuyCngn(user, { amount });
+    } catch (error) {
+      logger.error("Error handling buy amount:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
+
+  /**
+   * Handle Buy Crypto - Show available options
+   */
+  //   private async handleBuyCrypto(user: any): Promise<string> {
+  //     try {
+  //       return `💰 *Buy Crypto*
+
+  // *Available on Base Sepolia:*
+
+  // 🇳🇬 *cNGN (Nigerian Naira Token)*
+  // • Pay with: Bank transfer (NGN)
+  // • Rate: 1 NGN = 1 cNGN
+  // • Command: "buy cngn" or "buy 10000"
+
+  // *Quick Start:*
+  // • "buy 10000" - Buy ₦10,000 cNGN
+
+  // *Perfect for Nigerian users!* 🇳🇬
+  //     } catch (error) {
+  //       logger.error("Error handling buy crypto:", error);
+  //       return MESSAGE_TEMPLATES.ERROR_GENERIC;
+  //     }
+  //   }
+
+  //   /**
+  //    * Handle Buy Amount - Default to cNGN for Nigerian users
+  //    */
+  //   private async handleBuyAmount(user: any, data: any): Promise<string> {
+  //     try {
+  //       const amount = data?.amount || "10000";
+
+  //       // Default to cNGN for amount-only purchases (Nigerian focus)
+  //       return await this.handleBuyCngn(user, { amount });
+  //     } catch (error) {
+  //       logger.error("Error handling buy amount:", error);
+  //       return MESSAGE_TEMPLATES.ERROR_GENERIC;
+  //     }
+  //   }
+
+  //   /**
+  //    * Handle setup PIN
+  //    */
+  //   private async handleSetupPin(user: any): Promise<string> {
+  //     try {
+  //       const hasPinSetup = await PinService.hasPinSetup(user.id);
+  //       if (hasPinSetup) {
+  //         return "PIN Already Set Up\n\nYour transaction PIN is already configured.\n\nYou can:\n• Create cards: \"create card\"\n• Buy crypto: \"buy cngn\"\n• Reset PIN: \"reset pin\"\n\nType \"create card\" to get started!";
+  //       }
+
+  //       // Start PIN setup flow
+  //       SessionManager.startFlow(user.whatsappNumber, "PIN_SETUP");
+
+  //       return "Set Up Your Transaction PIN\n\nYour PIN secures all transactions and sensitive operations.\n\nPIN Requirements:\n• Exactly 4 digits\n• No repeated numbers (1111, 2222, etc.)\n• No sequential numbers (1234, 4321, etc.)\n\nPlease enter your 4-digit PIN:";
+  //     } catch (error) {
+  //       logger.error("Error handling PIN setup:", error);
+  //       return MESSAGE_TEMPLATES.ERROR_GENERIC;
+  //     }
+  //   }
+
+  //   /**
+  //    * Get contextual help based on user's progress
+  //    */
+  //   private async getContextualHelp(user: any): Promise<string> {
+  //     try {
+  //       const kycStatus = await UserService.getKYCStatus(user.id);
+  //       const hasPinSetup = await PinService.hasPinSetup(user.id);
+  //       const cardCount = await CardService.getCardCount(user.id);
+
+  //       // New user - needs KYC
+  //       if (!kycStatus.verified) {
+  //         return "Welcome to Nelo!\n\nYour Web3 financial assistant for Nigeria\n\nLet's get you started (2 minutes):\n1. Submit KYC: \"submit kyc\"\n2. Set security PIN: \"setup pin\"\n3. Create virtual card: \"create card\"\n4. Buy crypto: \"buy cngn\"\n\nType \"submit kyc\" to begin!\n\nNeed help? Contact support:\nnelovirtualcards@gmail.com";
+  //       }
+
+  //       // KYC done, needs PIN
+  //       if (!hasPinSetup) {
+  //         return "KYC Verified!\n\nNext step: Set up your security PIN\n\nSecurity Setup:\n• Set PIN: \"setup pin\"\n\nAfter PIN setup:\n• Create card: \"create card\"\n• Buy crypto: \"buy cngn\"\n\nType \"setup pin\" to continue!\n\nNeed help? Contact support:\nnelovirtualcards@gmail.com";
+  //       }
+
+  //       // KYC + PIN done, needs card
+  //       if (cardCount === 0) {
+  //         return "Account Secured!\n\nReady to create your virtual card?\n\nNext Steps:\n• Create card: \"create card\"\n• Buy crypto: \"buy cngn\"\n• Check balance: \"balance\"\n\nType \"create card\" to get started!\n\nNeed help? Contact support:\nnelovirtualcards@gmail.com";
+  //       }
+
+  //       // Fully set up user
+  //       return "Nelo - Ready to Use!\n\nBuy & Manage Crypto:\n• buy cngn - Buy Nigerian Naira (cNGN)\n• balance - Check your portfolio\n\nCards & Payments:\n• my cards - View your cards\n• view card - See card details\n• freeze card - Temporarily disable card\n• unfreeze card - Reactivate frozen card\n• withdraw from card 1000 - Move funds to wallet\n• delete card - Permanently remove card\n• card history - View card transactions\n• send 1000 to alice.base.eth\n\nBanking:\n• add bank - Link Nigerian bank\n• withdraw 5000 - Cash out to bank\n\nAccount:\n• history - View transactions\n• profile - Your account info\n\nBasename:\n• set basename alice.base.eth\n• check basename alice.base.eth\n\nNeed help? Contact support:\nnelovirtualcards@gmail.com\n\nNeed help with anything specific?";
+  //     } catch (error) {
+  //       logger.error("Error getting contextual help:", error);
+  //       return MESSAGE_TEMPLATES.HELP;
+  //     }
+  //   }
+
+  //   /**
+  //    * Handle other methods with simple responses for now
+  //    */
+  //   private async handleSendMoney(user: any, data: any): Promise<string> {
+  //     try {
+  //       if (!data || !data.amount || !data.recipient) {
+  //         return "Send Money\n\nSend crypto to anyone on Base network:\n\nFormat:\n\"send [amount] to [address/basename]\"\n\nExamples:\n• send 1000 to alice.base.eth\n• send 100 to bob.base.eth\n\nSupported token: cNGN";
+  //       }
+
+  //       // Check KYC status
+  //       const kycStatus = await UserService.getKYCStatus(user.id);
+  //       if (!kycStatus.verified) {
+  //         return "KYC Required for Transfers\n\nComplete KYC verification first to send money.\n\nType \"submit kyc\" to get started.";
+  //       }
+
+  //       // Check PIN setup
+  //       const hasPinSetup = await PinService.hasPinSetup(user.id);
+  //       if (!hasPinSetup) {
+  //         return "PIN Required for Transfers\n\nSet up your security PIN first to send money.\n\nType \"setup pin\" to secure your account.";
+  //       }
+
+  //       const { amount, recipient, token = "cngn" } = data;
+
+  //       // Validate amount
+  //       const amountMatch = amount.match(/(\d+(?:\.\d+)?)/);
+  //       if (!amountMatch) {
+  //         return "Invalid amount format.\nExample: \"send 1000 to alice.base.eth\"";
+  //       }
+
+  //       const amountValue = amountMatch[1];
+
+  //       // Use secure transaction flow (requires PIN)
+  //       return await FlowHandler.handleSecureTransaction(
+  //         user.whatsappNumber,
+  //         "SEND_MONEY",
+  //         {
+  //           amount: amountValue,
+  //           recipient,
+  //           token: token.toLowerCase(),
+  //         },
+  //         SessionManager.getSession(user.whatsappNumber)!
+  //       );
+  //     } catch (error) {
+  //       logger.error("Error handling send money:", error);
+  //       return MESSAGE_TEMPLATES.ERROR_GENERIC;
+  //     }
+  //   }
+
+  //   private async handleDeposit(user: any): Promise<string> {
+  //     return "Deposit Crypto\n\nYour wallet address:\n" + user.walletAddress + "\n\nYou can:\n1. Buy cNGN: \"buy cngn\"\n2. Transfer from another wallet\n3. Receive from friends\n\nOnly send cNGN tokens to this address on Base network.";
+  //   }
+
+  //   private async handleProfile(user: any): Promise<string> {
+  //     try {
+  //       const cardCount = await CardService.getCardCount(user.id);
+  //       const kycStatus = await UserService.getKYCStatus(user.id);
+  //       const hasPinSetup = await PinService.hasPinSetup(user.id);
+
+  //       return "Your Profile\n\nWhatsApp: " + user.whatsappNumber + "\nName: " + (user.firstName || "Not set") + " " + (user.lastName || "") + "\nWallet Address:\n" + user.walletAddress + "\n\nCards: " + cardCount + "\nKYC: " + (kycStatus.verified ? "Verified" : "Not Verified") + "\nPIN: " + (hasPinSetup ? "Set Up" : "Not Set Up") + "\nBasename: " + (user.basename || "Not set") + "\nJoined: " + new Date(user.createdAt).toLocaleDateString()
+
+  // *💡 Tip:* Tap and hold the wallet address to copy it
+
+  // *Actions:*
+  // • Set basename: "set basename yourname.base.eth"
+  // • Check balance: "balance"
+  // • View cards: "my cards"`;
+  //     } catch (error) {
+  //       logger.error("Error getting profile:", error);
+  //       return MESSAGE_TEMPLATES.ERROR_GENERIC;
+  //     }
+  //   }
+
+  // USDC/USDT functions removed - focusing only on cNGN
 
   private async handleSetBasename(user: any, data: any): Promise<string> {
     try {
@@ -1350,11 +1569,16 @@ Example: "withdraw 5000"
         return `❌ Minimum withdrawal is ₦100`;
       }
 
-      // Use IntegratedOffRampService for withdrawal
-      const result = await IntegratedOffRampService.withdrawCNGN({
+      // Use OffRampService for withdrawal
+      const { OffRampService } = await import("../payment/offRampService");
+      const result = await OffRampService.initiateOffRamp({
         userId: user.id,
-        amountCNGN: amountNum,
-        bankAccountId: bankAccounts[0].id, // Use first bank account
+        amount: amountNum.toString(),
+        bankAccount: {
+          accountNumber: bankAccounts[0].accountNumber,
+          bankCode: bankAccounts[0].bankCode,
+          accountName: bankAccounts[0].accountName,
+        },
       });
 
       if (result.success) {
@@ -1364,7 +1588,7 @@ Example: "withdraw 5000"
 🏦 Bank: ${bankAccounts[0].bankName}
 📋 Account: ${bankAccounts[0].accountNumber}
 ⏱️ Processing: ${result.estimatedTime}
-🔗 Reference: ${result.withdrawalReference}
+🔗 Reference: ${result.transactionId}
 
 Your money is on the way! 🚀`;
       } else {
@@ -1543,16 +1767,18 @@ Try again with: "buy ${amount}"`;
 Example: "paid 10000"`;
       }
 
-      // Use IntegratedOnRampService to confirm payment
-      const { IntegratedOnRampService } = await import(
-        "../payment/integratedOnRampService"
-      );
+      // Use MockFiatService to confirm payment
+      const paymentReference = `nelo_deposit_${user.id}_${Date.now()}`;
 
-      const result = await IntegratedOnRampService.confirmPayment({
+      // First create the payment request
+      await MockFiatService.initiateFiatToCNGN({
         userId: user.id,
-        amountNGN: parseFloat(amount),
-        paymentReference: `nelo_deposit_${user.id}_${Date.now()}`,
+        amount: parseFloat(amount),
+        paymentMethod: "BANK_TRANSFER",
       });
+
+      // Then confirm it
+      const result = await MockFiatService.confirmFiatPayment(paymentReference);
 
       if (result.success) {
         return `🎉 *Payment Confirmed!*
@@ -1582,23 +1808,13 @@ Please try again or contact support if you made the payment.`;
     try {
       const hasPinSetup = await PinService.hasPinSetup(user.id);
       if (!hasPinSetup) {
-        return `❌ *No PIN Found*
-
-You haven't set up a PIN yet.
-
-Type "setup pin" to create your security PIN.`;
+        return 'No PIN Found\n\nYou haven\'t set up a PIN yet.\n\nType "setup pin" to create your security PIN.';
       }
 
       // Start PIN reset flow
       SessionManager.startFlow(user.whatsappNumber, "PIN_RESET");
 
-      return `🔐 *PIN Reset - Security Verification*
-
-To reset your PIN, I need to verify your identity first.
-
-Please answer your security question:
-
-*This will be shown in the next step...*`;
+      return "PIN Reset - Security Verification\n\nTo reset your PIN, I need to verify your identity first.\n\nPlease answer your security question:\n\nThis will be shown in the next step...";
     } catch (error) {
       logger.error("Error handling PIN reset:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
@@ -1606,8 +1822,371 @@ Please answer your security question:
   }
 
   private handleCancel(): string {
-    return `❌ *Operation Cancelled*
+    return 'Operation Cancelled\n\nType "help" to see available commands.';
+  }
 
-Type "help" to see available commands.`;
+  /**
+   * Handle card deletion/deactivation
+   */
+  private async handleDeleteCard(user: any): Promise<string> {
+    try {
+      const cards = await CardService.getUserCards(user.id);
+
+      if (cards.length === 0) {
+        return 'No cards found.\n\nCreate your first card: "create card"';
+      }
+
+      if (cards.length === 1) {
+        const card = cards[0];
+        const balance = Number(card.cNGNBalance);
+
+        if (balance > 0) {
+          return `Card Deletion - Fund Recovery Required\n\nCard: ****${card.cardNumber.slice(
+            -4
+          )}\nBalance: ${balance.toLocaleString()} cNGN\n\nTo delete this card, choose where to transfer your funds:\n\n1. "delete card to wallet" - Transfer to your wallet\n2. "delete card to bank" - Transfer to your bank\n\nNote: This action cannot be undone.`;
+        } else {
+          // No funds, proceed with deletion
+          const result = await CardService.deactivateCard(user.id, card.id);
+
+          if (result.success) {
+            return `Card Deleted Successfully\n\nCard ****${card.cardNumber.slice(
+              -4
+            )} has been deactivated.\n\nYou can create a new card anytime: "create card"`;
+          } else {
+            return `Failed to delete card: ${result.error}`;
+          }
+        }
+      }
+
+      // Multiple cards - show selection
+      let response = "Select Card to Delete\n\n";
+      cards.forEach((card, index) => {
+        const balance = Number(card.cNGNBalance);
+        response += `${index + 1}. ****${card.cardNumber.slice(
+          -4
+        )} (${balance.toLocaleString()} cNGN)\n`;
+      });
+      response += `\nReply with number (1-${cards.length})\n\nNote: Cards with funds will require fund recovery.`;
+
+      return response;
+    } catch (error) {
+      logger.error("Error handling card deletion:", error);
+      return "Failed to process card deletion. Please try again.";
+    }
+  }
+
+  /**
+   * Handle card freezing
+   */
+  private async handleFreezeCard(user: any): Promise<string> {
+    try {
+      const cards = await CardService.getUserCards(user.id);
+      const activeCards = cards.filter((card) => card.status === "ACTIVE");
+
+      if (activeCards.length === 0) {
+        return 'No active cards to freeze.\n\nCreate a card: "create card"';
+      }
+
+      if (activeCards.length === 1) {
+        const card = activeCards[0];
+        const result = await CardService.freezeCard(user.id, card.id, true);
+
+        if (result.success) {
+          return `Card Frozen Successfully\n\nCard: ****${card.cardNumber.slice(
+            -4
+          )}\nStatus: Frozen\nBalance: ${Number(
+            card.cNGNBalance
+          ).toLocaleString()} cNGN\n\nYour card is temporarily disabled.\nUnfreeze with: "unfreeze card"`;
+        } else {
+          return `Failed to freeze card: ${result.error}`;
+        }
+      }
+
+      // Multiple cards - show selection
+      let response = "Select Card to Freeze\n\n";
+      activeCards.forEach((card, index) => {
+        response += `${index + 1}. ****${card.cardNumber.slice(-4)} (${Number(
+          card.cNGNBalance
+        ).toLocaleString()} cNGN)\n`;
+      });
+      response += `\nReply with number (1-${activeCards.length})`;
+
+      return response;
+    } catch (error) {
+      logger.error("Error handling card freeze:", error);
+      return "Failed to freeze card. Please try again.";
+    }
+  }
+
+  /**
+   * Handle card unfreezing
+   */
+  private async handleUnfreezeCard(user: any): Promise<string> {
+    try {
+      const cards = await CardService.getUserCards(user.id);
+      const frozenCards = cards.filter((card) => card.status === "SUSPENDED");
+
+      if (frozenCards.length === 0) {
+        return "No frozen cards to unfreeze.\n\nAll your cards are already active.";
+      }
+
+      if (frozenCards.length === 1) {
+        const card = frozenCards[0];
+        const result = await CardService.freezeCard(user.id, card.id, false);
+
+        if (result.success) {
+          return `Card Unfrozen Successfully\n\nCard: ****${card.cardNumber.slice(
+            -4
+          )}\nStatus: Active\nBalance: ${Number(
+            card.cNGNBalance
+          ).toLocaleString()} cNGN\n\nYour card is now active and ready to use.`;
+        } else {
+          return `Failed to unfreeze card: ${result.error}`;
+        }
+      }
+
+      // Multiple cards - show selection
+      let response = "Select Card to Unfreeze\n\n";
+      frozenCards.forEach((card, index) => {
+        response += `${index + 1}. ****${card.cardNumber.slice(-4)} (${Number(
+          card.cNGNBalance
+        ).toLocaleString()} cNGN)\n`;
+      });
+      response += `\nReply with number (1-${frozenCards.length})`;
+
+      return response;
+    } catch (error) {
+      logger.error("Error handling card unfreeze:", error);
+      return "Failed to unfreeze card. Please try again.";
+    }
+  }
+
+  /**
+   * Handle withdrawing funds from card to wallet
+   */
+  private async handleWithdrawFromCard(user: any, data: any): Promise<string> {
+    try {
+      const amount = data?.amount;
+      if (!amount) {
+        return 'Please specify amount to withdraw.\n\nExample: "withdraw from card 1000"';
+      }
+
+      const amountNum = parseFloat(amount);
+      if (amountNum <= 0) {
+        return "Invalid amount. Please enter a positive number.";
+      }
+
+      const cards = await CardService.getUserCards(user.id);
+      const activeCards = cards.filter(
+        (card) =>
+          card.status === "ACTIVE" && Number(card.cNGNBalance) >= amountNum
+      );
+
+      if (activeCards.length === 0) {
+        return `No cards with sufficient balance.\n\nRequired: ${amountNum.toLocaleString()} cNGN\n\nCheck your cards: "my cards"`;
+      }
+
+      if (activeCards.length === 1) {
+        const card = activeCards[0];
+
+        // Set up PIN verification for this transaction
+        return await FlowHandler.handleSecureTransaction(
+          user.whatsappNumber,
+          "CARD_WITHDRAWAL",
+          {
+            cardId: card.id,
+            cardNumber: card.cardNumber,
+            amount: amountNum,
+          },
+          SessionManager.getOrCreateSession(user.id, user.whatsappNumber)
+        );
+      }
+
+      // Multiple cards - show selection
+      let response = `Select Card to Withdraw ${amountNum.toLocaleString()} cNGN From\n\n`;
+      activeCards.forEach((card, index) => {
+        response += `${index + 1}. ****${card.cardNumber.slice(-4)} (${Number(
+          card.cNGNBalance
+        ).toLocaleString()} cNGN)\n`;
+      });
+      response += `\nReply with number (1-${activeCards.length})`;
+
+      return response;
+    } catch (error) {
+      logger.error("Error handling card withdrawal:", error);
+      return "Failed to process withdrawal. Please try again.";
+    }
+  }
+
+  /**
+   * Handle card transaction history
+   */
+  private async handleCardHistory(user: any): Promise<string> {
+    try {
+      const cards = await CardService.getUserCards(user.id);
+
+      if (cards.length === 0) {
+        return 'No cards found.\n\nCreate your first card: "create card"';
+      }
+
+      if (cards.length === 1) {
+        const card = cards[0];
+        const historyResult = await CardService.getCardTransactionHistory(
+          user.id,
+          card.id,
+          10
+        );
+
+        if (!historyResult.success) {
+          return `Failed to get card history: ${historyResult.error}`;
+        }
+
+        const transactions = historyResult.data || [];
+
+        if (transactions.length === 0) {
+          return `Card Transaction History\n\nCard: ****${card.cardNumber.slice(
+            -4
+          )}\n\nNo transactions yet.\n\nFund your card: "buy cngn"`;
+        }
+
+        let response = `Card Transaction History\n\nCard: ****${card.cardNumber.slice(
+          -4
+        )}\nBalance: ${Number(card.cNGNBalance).toLocaleString()} cNGN\n\n`;
+
+        transactions.forEach((tx) => {
+          const date = new Date(tx.createdAt).toLocaleDateString();
+          const time = new Date(tx.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+          let typeIcon = "💰";
+          if (tx.type === "DEPOSIT") typeIcon = "💰";
+          if (tx.type === "WITHDRAWAL") typeIcon = "💸";
+          if (tx.type === "TRANSFER") typeIcon = "📤";
+          if (tx.type === "PAYMENT") typeIcon = "💳";
+
+          response += `${typeIcon} ${tx.type}\n${tx.amount} ${tx.currency}\n${date} ${time}\n${tx.status}\n`;
+
+          if (tx.txHash) {
+            response += `TX: ${tx.txHash.slice(0, 10)}...\n`;
+          }
+
+          response += `\n`;
+        });
+
+        return response;
+      }
+
+      // Multiple cards - show selection
+      let response = "Select Card for Transaction History\n\n";
+      cards.forEach((card, index) => {
+        response += `${index + 1}. ****${card.cardNumber.slice(-4)} (${Number(
+          card.cNGNBalance
+        ).toLocaleString()} cNGN)\n`;
+      });
+      response += `\nReply with number (1-${cards.length})`;
+
+      return response;
+    } catch (error) {
+      logger.error("Error handling card history:", error);
+      return "Failed to get card history. Please try again.";
+    }
+  }
+
+  /**
+   * Handle bridge/swap tokens between cNGN and USDC
+   */
+  private async handleBridgeTokens(user: any, data: any): Promise<string> {
+    try {
+      if (!data || !data.amount || !data.fromToken || !data.toToken) {
+        return `🌉 *Bridge Tokens*
+
+Swap between cNGN and USDC:
+
+*Format:*
+"bridge [amount] [from] to [to]"
+
+*Examples:*
+• bridge 1000 cngn to usdc
+• swap 10 usdc to cngn
+• convert 500 cngn to usdc
+
+*Current Rate:*
+• 1 USDC ≈ 1,500 cNGN
+• 1 cNGN ≈ 0.00067 USDC
+
+*Bridge Fee:* 0.3%`;
+      }
+
+      // Check KYC status
+      const kycStatus = await UserService.getKYCStatus(user.id);
+      if (!kycStatus.verified) {
+        return `🔒 *KYC Required for Bridge*
+
+Complete KYC verification first to bridge tokens.
+
+Type "submit kyc" to get started.`;
+      }
+
+      // Check PIN setup
+      const hasPinSetup = await PinService.hasPinSetup(user.id);
+      if (!hasPinSetup) {
+        return `🔐 *PIN Required for Bridge*
+
+Set up your security PIN first to bridge tokens.
+
+Type "setup pin" to secure your account.`;
+      }
+
+      const { amount, fromToken, toToken } = data;
+
+      // Validate tokens
+      if (fromToken === toToken) {
+        return `❌ Cannot bridge ${fromToken.toUpperCase()} to itself.
+
+Try: "bridge ${amount} ${fromToken} to ${
+          fromToken === "cngn" ? "usdc" : "cngn"
+        }"`;
+      }
+
+      if (
+        !["cngn", "usdc"].includes(fromToken) ||
+        !["cngn", "usdc"].includes(toToken)
+      ) {
+        return `❌ Unsupported tokens. Only cNGN and USDC are supported.
+
+Example: "bridge 1000 cngn to usdc"`;
+      }
+
+      // Get bridge estimate
+      const { BridgeService } = await import("../blockchain/bridgeService");
+      const estimate = await BridgeService.estimateBridge(
+        fromToken.toUpperCase() as "cNGN" | "USDC",
+        toToken.toUpperCase() as "cNGN" | "USDC",
+        amount
+      );
+
+      return `🌉 *Bridge Confirmation*
+
+💱 **Exchange:**
+${amount} ${fromToken.toUpperCase()} → ${
+        estimate.toAmount
+      } ${toToken.toUpperCase()}
+
+📊 **Rate:** 1 ${fromToken.toUpperCase()} = ${
+        estimate.rate
+      } ${toToken.toUpperCase()}
+💰 **Fee:** ${estimate.fee} ${toToken.toUpperCase()} (0.3%)
+
+⚠️ **This will:**
+1. Transfer ${amount} ${fromToken.toUpperCase()} from your custody
+2. Give you ${estimate.toAmount} ${toToken.toUpperCase()}
+
+Type your PIN to confirm or "cancel" to abort.`;
+    } catch (error) {
+      logger.error("Error handling bridge tokens:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 }

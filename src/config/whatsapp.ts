@@ -21,13 +21,13 @@ export const MESSAGE_TEMPLATES = {
 
 Your Web3 financial assistant for Nigeria 🇳🇬
 
-I help you manage virtual cards and crypto through WhatsApp - no app needed!
+I help you manage virtual cards and crypto through WhatsApp!
 
 *🚀 Quick Start (2 minutes):*
 1. Submit KYC: "submit kyc"
 2. Set security PIN: "setup pin"  
 3. Create virtual card: "create card"
-4. Buy crypto: "buy cngn"
+4. Buy crypto: "buy cngn" or "buy usdc"
 
 *💡 New to crypto?*
 Perfect! I'll guide you step by step.
@@ -44,7 +44,7 @@ I help you manage virtual cards and crypto - all through WhatsApp!
 1. Submit KYC: "submit kyc"
 2. Set security PIN: "setup pin"
 3. Create virtual card: "create card"
-4. Start using crypto: "buy cngn"
+4. Start using crypto: "buy cngn" or "buy usdc"
 
 *💡 First time with crypto?*
 Perfect! I'll make it super easy.
@@ -55,13 +55,15 @@ Ready? Type "submit kyc" to begin! ✨`,
 
 *💰 Buy & Manage Crypto:*
 • buy cngn - Buy Nigerian Naira (cNGN)
-• buy usdc - Buy USD Coin
+• buy usdc - Get USDC from faucet
 • balance - Check your portfolio
+• bridge 1000 cngn to usdc - Swap tokens
 
 *💳 Cards & Payments:*
 • my cards - View your cards
 • view card - See card details
-• send 1000 to alice.base.eth
+• send 1000 cngn to alice.base.eth
+• send 10 usdc to bob.base.eth
 
 *🏦 Banking:*
 • add bank - Link Nigerian bank
@@ -86,15 +88,13 @@ Need help with anything specific? 💬`,
     if (balances.cngn > 0) {
       message += `🇳🇬 cNGN: ${balances.cngn} (₦${balances.cngn})\n`;
     }
+
     if (balances.usdc > 0) {
       message += `💵 USDC: ${balances.usdc} ($${balances.usdc})\n`;
     }
-    if (balances.usdt > 0) {
-      message += `💰 USDT: ${balances.usdt} ($${balances.usdt})\n`;
-    }
 
-    if (balances.cngn === 0 && balances.usdc === 0 && balances.usdt === 0) {
-      message += `No crypto yet. Start with:\n• "buy cngn" for Nigerian Naira\n• "buy usdc" for US Dollar\n• "buy usdt" for Tether`;
+    if (balances.cngn === 0 && balances.usdc === 0) {
+      message += `No crypto yet. Start with:\n• "buy cngn" for Nigerian Naira\n• "buy usdc" for USD Coin`;
     } else {
       message += `\n💳 Active Cards: ${balances.cardCount}\n\nType "my cards" to see card balances.`;
     }
@@ -110,9 +110,9 @@ Need help with anything specific? 💬`,
 💰 Balance: 0 (empty)
 
 *Next Steps:*
-• Fund card: "buy cngn"
+• Fund card: "buy cngn" or "buy usdc"
 • Check balance: "balance"
-• Send money: "send [amount] to [address]"
+• Send money: "send [amount] [token] to [address]"
 
 Your card is ready! 🚀`,
 
@@ -171,8 +171,8 @@ Welcome to Nelo! 🚀`,
 
 *You can now:*
 • Create virtual cards: "create card"
-• Buy crypto: "buy cngn"
-• Send money: "send [amount] to [address]"
+• Buy crypto: "buy cngn" or "buy usdc"
+• Send money: "send [amount] [token] to [address]"
 
 Type "create card" to get started! 🚀`,
 } as const;

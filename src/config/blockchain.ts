@@ -9,6 +9,7 @@ const env = {
   DEPLOYER_PRIVATE_KEY: process.env.DEPLOYER_PRIVATE_KEY,
   NELO_CUSTODY_CONTRACT_ADDRESS: process.env.NELO_CUSTODY_CONTRACT_ADDRESS,
   CNGN_TOKEN_ADDRESS: process.env.CNGN_TOKEN_ADDRESS,
+  USDC_TOKEN_ADDRESS: process.env.USDC_TOKEN_ADDRESS,
   L2_RESOLVER_ADDRESS: process.env.L2_RESOLVER_ADDRESS,
   BASE_CHAIN_ID: process.env.BASE_CHAIN_ID,
 };
@@ -20,6 +21,7 @@ if (!env.DEPLOYER_PRIVATE_KEY)
 if (!env.NELO_CUSTODY_CONTRACT_ADDRESS)
   throw new Error("NELO_CUSTODY_CONTRACT_ADDRESS is not set");
 if (!env.CNGN_TOKEN_ADDRESS) throw new Error("CNGN_TOKEN_ADDRESS is not set");
+if (!env.USDC_TOKEN_ADDRESS) throw new Error("USDC_TOKEN_ADDRESS is not set");
 if (!env.L2_RESOLVER_ADDRESS) throw new Error("L2_RESOLVER_ADDRESS is not set");
 if (!env.DEPLOYER_PRIVATE_KEY)
   throw new Error("DEPLOYER_PRIVATE_KEY is not set");
@@ -52,10 +54,8 @@ export const deployerWallet = new ethers.Wallet(
 export const CONTRACT_ADDRESSES = {
   NELO_CUSTODY: env.NELO_CUSTODY_CONTRACT_ADDRESS,
   CNGN_TOKEN: env.CNGN_TOKEN_ADDRESS,
+  USDC_TOKEN: env.USDC_TOKEN_ADDRESS,
   L2_RESOLVER: env.L2_RESOLVER_ADDRESS,
-  // USDC is available on Base Sepolia!
-  USDC_TOKEN: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Base Sepolia USDC
-  USDT_TOKEN: null, // Not available on Base Sepolia
 } as const;
 
 // Supported tokens configuration
@@ -69,11 +69,11 @@ export const SUPPORTED_TOKENS = {
     network: "Base Sepolia",
   },
   USDC: {
-    address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // REAL Base Sepolia USDC
-    decimals: 6,
+    address: env.USDC_TOKEN_ADDRESS,
+    decimals: 6, // USDC has 6 decimals
     symbol: "USDC",
     name: "USD Coin",
-    deployed: true, // FIXED: It IS deployed!
+    deployed: true,
     network: "Base Sepolia",
   },
 } as const;
@@ -103,6 +103,20 @@ export const CONTRACT_ABIS = {
   ],
 
   CNGN_TOKEN: [
+    "function balanceOf(address account) external view returns (uint256)",
+    "function transfer(address to, uint256 amount) external returns (bool)",
+    "function approve(address spender, uint256 amount) external returns (bool)",
+    "function allowance(address owner, address spender) external view returns (uint256)",
+    "function decimals() external view returns (uint8)",
+    "function symbol() external view returns (string)",
+    "function name() external view returns (string)",
+    "function mint(address to, uint256 amount) external",
+    "event Transfer(address indexed from, address indexed to, uint256 value)",
+    "event Approval(address indexed owner, address indexed spender, uint256 value)",
+  ],
+
+  // Standard ERC20 ABI for USDC (no mint function)
+  USDC_TOKEN: [
     "function balanceOf(address account) external view returns (uint256)",
     "function transfer(address to, uint256 amount) external returns (bool)",
     "function approve(address spender, uint256 amount) external returns (bool)",
