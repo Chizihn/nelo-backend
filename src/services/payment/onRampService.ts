@@ -173,6 +173,61 @@ export class OnRampService {
   }
 
   /**
+   * Initiate USDC purchase
+   */
+  static async initiateUSDCPurchase(request: {
+    userId: string;
+    amountUSD: number;
+    paymentMethod: string;
+  }): Promise<{
+    success: boolean;
+    paymentInstructions?: string;
+    error?: string;
+  }> {
+    try {
+      const { userId, amountUSD, paymentMethod } = request;
+
+      // Generate MoonPay URL for USDC purchase
+      const params = new URLSearchParams({
+        apiKey: env.ONRAMP_API_KEY || "",
+        currencyCode: "usdc_base", // USDC on Base
+        baseCurrencyCode: "usd", // US Dollar
+        baseCurrencyAmount: amountUSD.toString(),
+        walletAddress: userId, // User's wallet address
+        redirectURL: `https://nelo-base.vercel.app/payment/callback?token=usdc`,
+        theme: "dark",
+        showWalletAddressForm: "false",
+      });
+
+      const moonPayUrl = `https://buy.moonpay.com?${params.toString()}`;
+
+      return {
+        success: true,
+        paymentInstructions: `*Payment Methods:*
+1️⃣ Credit/Debit Card (via MoonPay)
+   Click: ${moonPayUrl}
+
+2️⃣ Bank Transfer (International)
+   Contact support for wire transfer details
+
+3️⃣ Crypto Swap (if you have other tokens)
+   Use DEX to swap for USDC
+
+*Recommended:* Use MoonPay for instant purchase with card.`,
+      };
+    } catch (error) {
+      logger.error("Error initiating USDC purchase:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to initiate USDC purchase",
+      };
+    }
+  }
+
+  /**
    * COMPLETE INTEGRATION: Process NGN to cNGN conversion
    * This integrates with the blockchain to actually mint/deposit cNGN
    */

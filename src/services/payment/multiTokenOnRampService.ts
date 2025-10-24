@@ -163,7 +163,9 @@ export class MultiTokenOnRampService {
     moonPayUrl.searchParams.append("walletAddress", `USER_WALLET_${userId}`); // Will be replaced with actual wallet
     moonPayUrl.searchParams.append(
       "redirectURL",
-      `https://ne-lobase.vercel.app/payment/callback?tx_ref=${txRef}&token=${tokenSymbol.toLowerCase()}`
+      `${
+        process.env.FRONTEND_URL
+      }/payment/callback?tx_ref=${txRef}&token=${tokenSymbol.toLowerCase()}`
     );
     moonPayUrl.searchParams.append("theme", "dark");
 

@@ -65,7 +65,7 @@ model VirtualCard {
   cardNumber      String            @unique
   tokenId         String            @unique
   contractAddress String
-  balance         Decimal           @default(0) @db.Decimal(18, 8)
+  balance         Decimal           @default(0) @db.Decimal(18, 0)
   cNGNBalance     Decimal           @default(0) @db.Decimal(18, 8)
   status          VirtualCardStatus @default(ACTIVE)
   
@@ -96,7 +96,7 @@ model Transaction {
   cardId      String?
   type        TransactionType
   amount      Decimal           @db.Decimal(18, 8)
-  currency    String            @default("CNMG")
+  currency    String            @default("CNGN")
   txHash      String?           @unique
   status      TransactionStatus @default(PENDING)
   description String?
@@ -128,6 +128,7 @@ model Session {
   sessionData Json
   expiresAt   DateTime
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   
   // Relations
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -15,6 +15,16 @@ import {
   VirtualCardStatus,
 } from "@prisma/client";
 
+/**
+ * Card creation limits per KYC level (hackathon demo)
+ */
+const CARD_LIMITS: Record<string, number> = {
+  NONE: 0,
+  BASIC: 1,
+  VERIFIED: 3,
+  PREMIUM: 5,
+};
+
 export class CardService {
   /**
    * Generate unique card number
@@ -37,118 +47,117 @@ export class CardService {
     error?: string;
   }> {
     try {
-      // Add try-catch for KYC check
-      try {
-        const { KYCService } = await import("../kyc/kycService");
-        const kycPermission = await KYCService.canPerformAction(
-          userId,
-          "CREATE_CARD"
-        );
-
-        if (!kycPermission.allowed) {
-          return {
-            success: false,
-            error: `KYC verification required: ${kycPermission.reason}`,
-          };
-        }
-      } catch (kycError) {
-        logger.warn(
-          "KYC check failed, proceeding with card creation:",
-          kycError
-        );
-        // Allow creation to proceed if KYC service is down
-      }
-
-      // Get user
+      // -------------------------------------------------------------
+      // 1. Load user + KYC status in ONE query
+      // -------------------------------------------------------------
       const user = await prisma.user.findUnique({
         where: { id: userId },
+        select: {
+          id: true,
+          isActive: true,
+          kycVerified: true,
+          kycLevel: true,
+        },
       });
 
-      if (!user) {
-        return { success: false, error: "User not found" };
-      }
-
-      if (!user.isActive) {
+      if (!user) return { success: false, error: "User not found" };
+      if (!user.isActive)
         return { success: false, error: "User account is inactive" };
-      }
-
-      // Add card limit per user (Edge Case #3)
-      const existingCards = await prisma.virtualCard.findMany({
-        where: { userId },
-      });
-
-      if (existingCards.length >= 5) {
+      if (!user.kycVerified) {
         return {
           success: false,
-          error: "Maximum 5 cards per user. Delete a card to create a new one.",
+          error: "KYC verification required to create cards",
         };
       }
 
-      // Step 1: Create MOCK virtual card (NO Sudo Africa)
-      const mockCard = MockCardService.createMockCard(userId);
+      // -------------------------------------------------------------
+      // 2. Enforce per-KYC card limit
+      // -------------------------------------------------------------
+      const maxCards = CARD_LIMITS[user.kycLevel] ?? 0;
+      const existingCount = await prisma.virtualCard.count({
+        where: { userId, status: "ACTIVE" },
+      });
 
-      // Step 2: Generate unique card number for display
+      if (existingCount >= maxCards) {
+        return {
+          success: false,
+          error: `You may have up to ${maxCards} active card(s). Delete one first.`,
+        };
+      }
+
+      // -------------------------------------------------------------
+      // 3. Generate a **unique** card number (10 attempts)
+      // -------------------------------------------------------------
       let cardNumber: string;
       let attempts = 0;
       do {
         cardNumber = this.generateCardNumber();
-        const existing = await prisma.virtualCard.findUnique({
+        const exists = await prisma.virtualCard.findUnique({
           where: { cardNumber },
         });
-        if (!existing) break;
+        if (!exists) break;
         attempts++;
       } while (attempts < 10);
 
       if (attempts >= 10) {
         return {
           success: false,
-          error: "Failed to generate unique card number",
+          error: "Failed to generate a unique card number",
         };
       }
 
-      // Step 3: Save MOCK card to database (NO Sudo Africa fields)
+      // -------------------------------------------------------------
+      // 4. Create **mock** card (no external provider)
+      // -------------------------------------------------------------
+      const mockCard = MockCardService.createMockCard(userId);
+
+      // -------------------------------------------------------------
+      // 5. Persist the virtual card
+      // -------------------------------------------------------------
       const card = await prisma.virtualCard.create({
         data: {
           userId,
           cardNumber,
           tokenId: `card_${Date.now()}_${Math.random()
             .toString(36)
-            .substring(2, 11)}`,
+            .slice(2, 11)}`,
           contractAddress: CONTRACT_ADDRESSES.NELO_CUSTODY || "",
-          status: "ACTIVE" as VirtualCardStatus,
-          // NO sudoCardId or sudoCustomerId - completely removed
+          status: VirtualCardStatus.ACTIVE,
           metadata: {
             mockCard: true,
-            cardData: JSON.parse(JSON.stringify(mockCard)),
             maskedPan: mockCard.maskedPan,
             expiryMonth: mockCard.expiryMonth,
             expiryYear: mockCard.expiryYear,
             brand: mockCard.brand,
             currency: mockCard.currency,
-            cvv: mockCard.cvv,
+            cvv: mockCard.cvv, // stored once – never returned again
           },
         },
       });
 
-      // Step 4: Create transaction record for card creation
+      // -------------------------------------------------------------
+      // 6. Record a “card-creation” transaction (demo-only)
+      // -------------------------------------------------------------
       await prisma.transaction.create({
         data: {
           userId,
           cardId: card.id,
-          type: "DEPOSIT" as TransactionType,
+          type: TransactionType.DEPOSIT,
           amount: 0,
-          status: "COMPLETED" as TransactionStatus,
-          description: "Mock virtual card created for hackathon demo",
+          status: TransactionStatus.COMPLETED,
+          description: "Mock virtual card created (hackathon demo)",
           metadata: {
             mockCardId: mockCard.id,
             cardCreation: true,
-            mockTransaction: true,
           },
         },
       });
 
+      // -------------------------------------------------------------
+      // 7. Return **only** the data the UI needs (CVV once)
+      // -------------------------------------------------------------
       logger.info(
-        `Mock virtual card created: ${card.id} for user ${userId}, Mock ID: ${mockCard.id}`
+        `Mock card created – DB ID: ${card.id}, Mock ID: ${mockCard.id}`
       );
 
       return {
@@ -157,20 +166,19 @@ export class CardService {
           cardId: card.id,
           cardNumber: card.cardNumber,
           tokenId: card.tokenId,
-          mockCardId: mockCard.id,
           maskedPan: mockCard.maskedPan,
           expiryMonth: mockCard.expiryMonth,
           expiryYear: mockCard.expiryYear,
-          cvv: mockCard.cvv, // Only returned on creation
+          cvv: mockCard.cvv, // <-- ONLY on creation
           brand: mockCard.brand,
           currency: mockCard.currency,
         },
       };
-    } catch (error) {
-      logger.error("Error creating mock virtual card:", error);
+    } catch (err) {
+      logger.error("CardService.createCard error:", err);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Card creation failed",
+        error: err instanceof Error ? err.message : "Card creation failed",
       };
     }
   }

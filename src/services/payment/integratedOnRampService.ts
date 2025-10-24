@@ -240,6 +240,77 @@ export class IntegratedOnRampService {
   }
 
   /**
+   * Confirm payment manually (for "paid 10000" command)
+   */
+  static async confirmPayment(request: {
+    userId: string;
+    amountNGN: number;
+    paymentReference: string;
+  }): Promise<{
+    success: boolean;
+    txHash?: string;
+    error?: string;
+  }> {
+    try {
+      const { userId, amountNGN, paymentReference } = request;
+
+      // Get user
+      const user = await UserService.getUserById(userId);
+      if (!user) {
+        return { success: false, error: "User not found" };
+      }
+
+      // Create transaction record
+      const transaction = await prisma.transaction.create({
+        data: {
+          userId,
+          type: "DEPOSIT",
+          amount: amountNGN,
+          currency: "NGN",
+          status: "PENDING",
+          description: `Manual payment confirmation: ₦${amountNGN}`,
+          metadata: {
+            paymentReference,
+            paymentMethod: "BANK_TRANSFER",
+            manualConfirmation: true,
+            confirmedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      // Process the payment confirmation
+      const result = await this.confirmPaymentAndMintCNGN(paymentReference);
+
+      if (result.success) {
+        return {
+          success: true,
+          txHash: result.txHash,
+        };
+      } else {
+        // Update transaction as failed
+        await prisma.transaction.update({
+          where: { id: transaction.id },
+          data: { status: "FAILED" },
+        });
+
+        return {
+          success: false,
+          error: result.error || "Payment confirmation failed",
+        };
+      }
+    } catch (error) {
+      logger.error("Error confirming manual payment:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Payment confirmation failed",
+      };
+    }
+  }
+
+  /**
    * Get deposit limits for user based on KYC level
    */
   static async getDepositLimits(userId: string): Promise<{

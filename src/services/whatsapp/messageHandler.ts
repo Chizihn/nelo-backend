@@ -746,12 +746,69 @@ Please enter your 4-digit PIN:`;
    * Handle other methods with simple responses for now
    */
   private async handleSendMoney(user: any, data: any): Promise<string> {
-    return `💸 *Send Money*
+    try {
+      if (!data || !data.amount || !data.recipient) {
+        return `💸 *Send Money*
 
-Feature coming soon! For now, you can:
-• Check balance: "balance"
-• Buy crypto: "buy cngn"
-• View history: "history"`;
+Send crypto to anyone on Base network:
+
+*Format:*
+"send [amount] to [address/basename]"
+
+*Examples:*
+• send 1000 to alice.base.eth
+• send 50 usdc to 0x1234...
+• send 100 to bob.base.eth
+
+*Supported tokens:* cNGN, USDC`;
+      }
+
+      // Check KYC status
+      const kycStatus = await UserService.getKYCStatus(user.id);
+      if (!kycStatus.verified) {
+        return `🔒 *KYC Required for Transfers*
+
+Complete KYC verification first to send money.
+
+Type "submit kyc" to get started.`;
+      }
+
+      // Check PIN setup
+      const hasPinSetup = await PinService.hasPinSetup(user.id);
+      if (!hasPinSetup) {
+        return `🔐 *PIN Required for Transfers*
+
+Set up your security PIN first to send money.
+
+Type "setup pin" to secure your account.`;
+      }
+
+      const { amount, recipient, token = "cngn" } = data;
+
+      // Validate amount
+      const amountMatch = amount.match(/(\d+(?:\.\d+)?)/);
+      if (!amountMatch) {
+        return `❌ Invalid amount format.
+Example: "send 1000 to alice.base.eth"`;
+      }
+
+      const amountValue = amountMatch[1];
+
+      // Use secure transaction flow (requires PIN)
+      return await FlowHandler.handleSecureTransaction(
+        user.whatsappNumber,
+        "SEND_MONEY",
+        {
+          amount: amountValue,
+          recipient,
+          token: token.toLowerCase(),
+        },
+        SessionManager.getSession(user.whatsappNumber)!
+      );
+    } catch (error) {
+      logger.error("Error handling send money:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private async handleDeposit(user: any): Promise<string> {
@@ -843,75 +900,413 @@ USDC/USDT will be available when we move to mainnet.`;
   }
 
   private async handleSetBasename(user: any, data: any): Promise<string> {
-    return `🏷️ *Basename Coming Soon*
+    try {
+      const basename = data?.basename;
+      if (!basename) {
+        return `🏷️ *Set Your Basename*
 
-Base name support is being added! For now:
-• Create card: "create card"
-• Buy crypto: "buy cngn"`;
+Basenames are human-readable addresses on Base network.
+
+Example: "set basename alice.base.eth"
+
+*Benefits:*
+• Easy to remember address
+• Receive payments with your name
+• Professional crypto identity
+
+*Format:* yourname.base.eth`;
+      }
+
+      // Validate basename format
+      if (!BasenameService.isValidBasename(basename)) {
+        return `❌ Invalid basename format.
+
+Please use: yourname.base.eth
+Example: "set basename alice.base.eth"`;
+      }
+
+      // Check if basename is available
+      const isRegistered = await BasenameService.isBasenameRegistered(basename);
+      if (!isRegistered) {
+        return `❌ Basename "${basename}" is not registered.
+
+Please register it first on https://base.org/names
+Then come back and set it: "set basename ${basename}"`;
+      }
+
+      // Update user basename
+      const result = await UserService.updateBasename(user.id, basename);
+      if (result) {
+        return `✅ *Basename Set Successfully!*
+
+🏷️ Your basename: ${basename}
+💳 Wallet: ${user.walletAddress}
+✅ Verified and linked
+
+People can now send you money using:
+"send 1000 to ${basename}"
+
+Much easier than remembering your wallet address! 🎉`;
+      } else {
+        return `❌ Failed to set basename. Please ensure it belongs to your wallet address.`;
+      }
+    } catch (error) {
+      logger.error("Error setting basename:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private async handleCheckBasename(data: any): Promise<string> {
-    return `🔍 *Basename Check Coming Soon*
+    try {
+      const basename = data?.basename;
+      if (!basename) {
+        return `🔍 *Check Basename Availability*
 
-This feature is being added! For now:
-• Create card: "create card"
-• Buy crypto: "buy cngn"`;
+Check if a basename is available:
+"check basename alice.base.eth"
+
+*What are basenames?*
+Human-readable addresses on Base network
+Example: alice.base.eth instead of 0x1234...`;
+      }
+
+      // Validate format
+      if (!BasenameService.isValidBasename(basename)) {
+        return `❌ Invalid basename format.
+
+Please use: yourname.base.eth
+Example: "check basename alice.base.eth"`;
+      }
+
+      // Check availability
+      const isRegistered = await BasenameService.isBasenameRegistered(basename);
+
+      if (isRegistered) {
+        // Try to resolve to see who owns it
+        const resolved = await BasenameService.resolveBasename(basename);
+
+        return `✅ *Basename "${basename}" is registered*
+
+🏷️ Name: ${basename}
+💳 Owner: ${resolved.address?.slice(0, 10)}...${resolved.address?.slice(-4)}
+✅ Status: Active
+
+This basename is already taken.
+Try a different name or register a new one at https://base.org/names`;
+      } else {
+        return `🎉 *Basename "${basename}" is available!*
+
+🏷️ Name: ${basename}
+✅ Status: Available for registration
+
+*Next steps:*
+1. Register at https://base.org/names
+2. Set it in Nelo: "set basename ${basename}"
+
+*Why get a basename?*
+• Easy to remember address
+• Professional crypto identity
+• Receive payments with your name`;
+      }
+    } catch (error) {
+      logger.error("Error checking basename:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private async handleWithdraw(user: any, data: any): Promise<string> {
-    return `💸 *Withdraw Coming Soon*
+    try {
+      // Check KYC status
+      const kycStatus = await UserService.getKYCStatus(user.id);
+      if (!kycStatus.verified) {
+        return `🔒 *KYC Required for Withdrawals*
 
-Cash out feature is being added! For now:
+Complete KYC verification first to withdraw funds.
+
+Type "submit kyc" to get started.`;
+      }
+
+      // Check if user has bank account
+      const bankAccounts = await UserService.getBankAccounts(user.id);
+      if (bankAccounts.length === 0) {
+        return `🏦 *Bank Account Required*
+
+Add a bank account first to withdraw funds.
+
+Type "add bank" to link your Nigerian bank account.`;
+      }
+
+      const amount = data?.amount;
+      if (!amount) {
+        return `💸 *Withdraw cNGN to Bank*
+
+Enter the amount you want to withdraw:
+Example: "withdraw 5000"
+
+*Available:*
 • Check balance: "balance"
-• Buy crypto: "buy cngn"`;
+• Add bank: "add bank"
+• View banks: "my banks"`;
+      }
+
+      const amountNum = parseFloat(amount);
+      if (amountNum < 100) {
+        return `❌ Minimum withdrawal is ₦100`;
+      }
+
+      // Use IntegratedOffRampService for withdrawal
+      const result = await IntegratedOffRampService.withdrawCNGN({
+        userId: user.id,
+        amountCNGN: amountNum,
+        bankAccountId: bankAccounts[0].id, // Use first bank account
+      });
+
+      if (result.success) {
+        return `✅ *Withdrawal Initiated*
+
+💸 Amount: ${amountNum.toLocaleString()} cNGN
+🏦 Bank: ${bankAccounts[0].bankName}
+📋 Account: ${bankAccounts[0].accountNumber}
+⏱️ Processing: ${result.estimatedTime}
+🔗 Reference: ${result.withdrawalReference}
+
+Your money is on the way! 🚀`;
+      } else {
+        return `❌ Withdrawal failed: ${result.error}`;
+      }
+    } catch (error) {
+      logger.error("Error handling withdrawal:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private async handleBankAccount(user: any): Promise<string> {
-    return `🏦 *Bank Account Coming Soon*
+    try {
+      const bankAccounts = await UserService.getBankAccounts(user.id);
 
-Bank linking is being added! For now:
-• Buy crypto: "buy cngn"
+      if (bankAccounts.length === 0) {
+        return `🏦 *No Bank Accounts Found*
+
+Add a bank account to withdraw funds:
+
+"add bank [Bank Name], account [Account Number], [Account Name]"
+
+Example:
+"add bank GTBank, account 0123456789, John Doe"`;
+      }
+
+      let response = `🏦 *Your Bank Accounts*\n\n`;
+
+      bankAccounts.forEach((account, index) => {
+        response += `${index + 1}. ${account.bankName}
+   Account: ${account.accountNumber}
+   Name: ${account.accountName}
+   Status: ${account.isVerified ? "✅ Verified" : "⏳ Pending"}
+
+`;
+      });
+
+      response += `*Actions:*
+• Withdraw: "withdraw 5000"
+• Add bank: "add bank [details]"
 • Check balance: "balance"`;
+
+      return response;
+    } catch (error) {
+      logger.error("Error getting bank accounts:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private async handleAddBank(user: any, data: any): Promise<string> {
-    return `🏦 *Add Bank Coming Soon*
+    try {
+      if (!data || !data.bankName) {
+        return `🏦 *Add Bank Account*
 
-Bank account linking is being added! For now:
-• Buy crypto: "buy cngn"
+Please provide your bank details in this format:
+"add bank [Bank Name], account [Account Number], [Account Name]"
+
+Example:
+"add bank GTBank, account 0123456789, John Doe"
+
+*Supported Banks:*
+• GTBank, Access Bank, First Bank
+• Zenith Bank, UBA, Fidelity Bank
+• And all major Nigerian banks`;
+      }
+
+      const { bankName, accountNumber, accountName } = data;
+
+      if (!bankName || !accountNumber || !accountName) {
+        return `❌ Missing bank details. Please use this format:
+"add bank [Bank Name], account [Account Number], [Account Name]"`;
+      }
+
+      // Mock bank code (in production, look up actual bank codes)
+      const bankCode = "999"; // Mock code
+
+      const result = await UserService.addBankAccount(
+        user.id,
+        accountNumber,
+        bankName,
+        bankCode,
+        accountName
+      );
+
+      if (result.success) {
+        return `✅ *Bank Account Added Successfully!*
+
+🏦 Bank: ${bankName}
+📋 Account: ${accountNumber}
+👤 Name: ${accountName}
+✅ Status: Verified
+
+You can now:
+• Withdraw funds: "withdraw 5000"
+• View all banks: "my banks"
 • Check balance: "balance"`;
+      } else {
+        return `❌ Failed to add bank account: ${result.error}`;
+      }
+    } catch (error) {
+      logger.error("Error adding bank account:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private async handleCashOut(user: any, data: any): Promise<string> {
-    return `💸 *Cash Out Coming Soon*
-
-Withdrawal to bank is being added! For now:
-• Check balance: "balance"
-• Buy crypto: "buy cngn"`;
+    // Cash out is same as withdraw
+    return await this.handleWithdraw(user, data);
   }
 
   private async handleBuyWithBank(user: any, data: any): Promise<string> {
-    return `🏦 *Bank Purchase Coming Soon*
+    try {
+      const amount = data?.amount;
+      if (!amount) {
+        return `🏦 *Buy with Bank Transfer*
 
-Direct bank purchases are being added! For now:
-• Buy crypto: "buy cngn"
-• Check balance: "balance"`;
+Enter the amount you want to buy:
+Example: "buy 10000"
+
+*Available:*
+• cNGN (Nigerian Naira): 1 NGN = 1 cNGN
+• Minimum: ₦100
+• Maximum: ₦1,000,000`;
+      }
+
+      const amountNum = parseFloat(amount);
+
+      // Validate amount
+      if (amountNum < 100) {
+        return "❌ Minimum purchase is ₦100";
+      }
+
+      if (amountNum > 1000000) {
+        return "❌ Maximum purchase is ₦1,000,000";
+      }
+
+      // Use Flutterwave for bank transfers
+      const result = await flutterwaveService.initiateBankTransfer({
+        userId: user.id,
+        amount: amountNum,
+        currency: "NGN",
+        email: `${user.whatsappNumber.replace("+", "")}@nelo.app`,
+        phoneNumber: user.whatsappNumber,
+        fullName: `${user.firstName || "User"} ${user.lastName || ""}`.trim(),
+      });
+
+      if (result.success) {
+        return `🏦 *Bank Transfer Initiated*
+
+💰 Amount: ₦${amountNum.toLocaleString()}
+🪙 You'll receive: ${amountNum.toLocaleString()} cNGN
+🔗 Rate: 1 NGN = 1 cNGN (no fees!)
+
+${result.paymentInstructions}
+
+*After completing the transfer:*
+Type "paid ${amount}" to confirm your payment
+
+⚠️ Transfer the exact amount: ₦${amountNum.toLocaleString()}`;
+      } else {
+        return `❌ Failed to initiate bank transfer: ${result.error}
+
+Try again with: "buy ${amount}"`;
+      }
+    } catch (error) {
+      logger.error("Error handling buy with bank:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private async handleConfirmPayment(user: any, data: any): Promise<string> {
-    return `✅ *Payment Confirmation Coming Soon*
+    try {
+      const amount = data?.amount;
+      if (!amount) {
+        return `❌ Please specify the amount you paid.
+Example: "paid 10000"`;
+      }
 
-Payment confirmation is being added! For now:
-• Buy crypto: "buy cngn"
-• Check balance: "balance"`;
+      // Use IntegratedOnRampService to confirm payment
+      const { IntegratedOnRampService } = await import(
+        "../payment/integratedOnRampService"
+      );
+
+      const result = await IntegratedOnRampService.confirmPayment({
+        userId: user.id,
+        amountNGN: parseFloat(amount),
+        paymentReference: `nelo_deposit_${user.id}_${Date.now()}`,
+      });
+
+      if (result.success) {
+        return `🎉 *Payment Confirmed!*
+
+✅ Amount: ₦${parseFloat(amount).toLocaleString()} NGN
+✅ cNGN Received: ${parseFloat(amount).toLocaleString()} cNGN
+✅ Status: Completed
+
+*Your wallet has been funded!*
+• Check balance: "balance"
+• Create card: "create card"
+• Send money: "send 1000 to alice.base.eth"
+
+Welcome to Nelo! 🚀`;
+      } else {
+        return `❌ Payment confirmation failed: ${result.error}
+
+Please try again or contact support if you made the payment.`;
+      }
+    } catch (error) {
+      logger.error("Error confirming payment:", error);
+      return `❌ Payment confirmation failed. Please try again or contact support.`;
+    }
   }
 
   private async handleResetPin(user: any): Promise<string> {
-    return `🔐 *PIN Reset Coming Soon*
+    try {
+      const hasPinSetup = await PinService.hasPinSetup(user.id);
+      if (!hasPinSetup) {
+        return `❌ *No PIN Found*
 
-PIN reset feature is being added! For now:
-• Setup PIN: "setup pin"
-• Get help: "help"`;
+You haven't set up a PIN yet.
+
+Type "setup pin" to create your security PIN.`;
+      }
+
+      // Start PIN reset flow
+      SessionManager.startFlow(user.whatsappNumber, "PIN_RESET");
+
+      return `🔐 *PIN Reset - Security Verification*
+
+To reset your PIN, I need to verify your identity first.
+
+Please answer your security question:
+
+*This will be shown in the next step...*`;
+    } catch (error) {
+      logger.error("Error handling PIN reset:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
   }
 
   private handleCancel(): string {

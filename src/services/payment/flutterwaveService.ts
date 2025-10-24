@@ -554,6 +554,66 @@ export class FlutterwaveService {
   }
 
   /**
+   * Initiate bank transfer for cNGN purchase
+   */
+  async initiateBankTransfer(request: {
+    userId: string;
+    amount: number;
+    currency: string;
+    email: string;
+    phoneNumber: string;
+    fullName: string;
+  }): Promise<{
+    success: boolean;
+    paymentInstructions?: string;
+    paymentReference?: string;
+    error?: string;
+  }> {
+    try {
+      const { userId, amount, currency, email, phoneNumber, fullName } =
+        request;
+
+      // Generate payment reference
+      const paymentReference = `nelo_deposit_${userId}_${Date.now()}`;
+
+      // For demo purposes, return mock bank transfer instructions
+      const paymentInstructions = `*Transfer ₦${amount.toLocaleString()} to:*
+
+  🏦 Account: 0067100155
+  🏛️ Bank: Wema Bank
+  👤 Name: Your Nelo Account
+  📋 Reference: ${paymentReference}
+
+  ⚠️ *Important:*
+  • Transfer the exact amount: ₦${amount.toLocaleString()}
+  • Use the reference above
+  • Transfer will be processed within 5 minutes
+
+  *After making the transfer:*
+  Type "paid ${amount}" to confirm your payment`;
+
+      logger.info(
+        `Bank transfer initiated: ${paymentReference} for ₦${amount}`
+      );
+
+      return {
+        success: true,
+        paymentInstructions,
+        paymentReference,
+      };
+    } catch (error) {
+      logger.error("Error initiating bank transfer:", error);
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to initiate bank transfer",
+      };
+    }
+  }
+
+  /**
    * Get mock banks for demo
    */
   private getMockBanks(): Array<{

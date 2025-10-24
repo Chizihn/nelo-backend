@@ -42,6 +42,14 @@ Please enter your 4-digit PIN:`;
           )}\n\nPlease enter a valid 4-digit PIN:`;
         }
 
+        // Check if PIN already exists in flow data to prevent duplicate processing
+        if (flowData.pin && flowData.pin === message) {
+          // Already processed this PIN, advance to confirmation
+          return `✅ PIN received (••••)
+
+Please confirm your PIN by entering it again:`;
+        }
+
         SessionManager.advanceFlow(whatsappNumber, { pin: message });
         return `✅ PIN received (••••)
 

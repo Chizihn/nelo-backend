@@ -75,7 +75,7 @@ export class IntentParser {
 
     BANK_ACCOUNT: [
       /^(add bank|bank account|set bank)/i,
-      /^(bank details|my bank)/i,
+      /^(bank details|my bank|my banks)/i,
     ],
 
     // History
@@ -264,9 +264,9 @@ export class IntentParser {
 
             // Handle add bank
             if (intentType === "ADD_BANK" && match.length >= 2) {
-              const bankInfo = match[0];
+              const bankInfo = cleanMessage;
               const bankMatch = bankInfo.match(
-                /(?:my bank is|add bank|bank)\s+([^,]+),?\s*account\s+(\d+),?\s*(.+)/i
+                /(?:add bank|my bank is|bank)\s+([^,]+),?\s*account\s+(\d+),?\s*(.+)/i
               );
               if (bankMatch) {
                 intent.data = {
