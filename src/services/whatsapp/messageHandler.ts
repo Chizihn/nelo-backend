@@ -60,6 +60,24 @@ export class MessageHandler {
 
       // Handle card selection
       if (session.awaitingCardSelection) {
+        // Handle cancel/back commands
+        if (
+          messageText.toLowerCase() === "cancel" ||
+          messageText.toLowerCase() === "back"
+        ) {
+          SessionManager.updateSession(message.from, {
+            awaitingCardSelection: false,
+            cardSelectionType: undefined,
+            availableCards: undefined,
+          });
+
+          await this.whatsappService.sendMessage(
+            message.from,
+            "❌ Card selection cancelled. Type 'help' to see available commands."
+          );
+          return;
+        }
+
         const cardNumber = parseInt(messageText);
         const cards = session.availableCards || [];
 
@@ -87,6 +105,12 @@ Expiry: ${mockData?.expiryMonth || "12"}/${mockData?.expiryYear || "28"}
 CVV: ${mockData?.cvv || "123"}
 Balance: ${selectedCard.cNGNBalance} cNGN
 
+*💳 Card Actions:*
+• freeze card - Temporarily disable
+• unfreeze card - Reactivate card
+• delete card - Permanently remove
+• withdraw from card 100 - Move funds to wallet
+
 ⚠️ Keep details private`
             );
             return;
@@ -94,7 +118,7 @@ Balance: ${selectedCard.cNGNBalance} cNGN
         } else {
           await this.whatsappService.sendMessage(
             message.from,
-            `❌ Invalid selection. Choose 1-${cards.length}`
+            `❌ Invalid selection. Choose 1-${cards.length} or type "cancel" to exit.`
           );
           return;
         }
@@ -325,6 +349,18 @@ Balance: ${selectedCard.cNGNBalance} cNGN
         logger.warn(
           `Unknown intent: ${type} for message: "${context.message.text?.body}"`
         );
+
+        // Check if user is in a selection state and provide context-aware help
+        if (SessionManager.isAwaitingCardSelection(context.message.from)) {
+          const session = SessionManager.getSession(context.message.from);
+          return `❓ I didn't understand "${context.message.text?.body}".
+
+You're selecting a card. Please:
+• Choose a number (1-${session?.availableCards?.length || 1})
+• Or type "cancel" to exit
+
+Type "help" for all commands.`;
+        }
 
         // Get smart suggestions
         const { SuggestionEngine } = await import("./suggestionEngine");
@@ -631,7 +667,7 @@ Balance: ${card.cNGNBalance} cNGN
           card.cNGNBalance
         } cNGN)\n`;
       });
-      response += `\nReply with number (1-${cards.length})`;
+      response += `\nReply with number (1-${cards.length}) or "cancel" to exit`;
 
       // Set session state for card selection
       SessionManager.updateSession(user.whatsappNumber, {
@@ -1017,8 +1053,12 @@ Type "create card" to get started! 🚀
 • bridge 1000 cngn to usdc - Swap tokens
 
 *💳 Cards & Payments:*
+• create card - Create new virtual card
 • my cards - View your cards
 • view card - See card details
+• freeze card - Temporarily disable card
+• unfreeze card - Reactivate card
+• delete card - Permanently remove card
 • send 1000 to alice.base.eth
 
 *🏦 Banking:*

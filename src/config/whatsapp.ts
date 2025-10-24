@@ -60,8 +60,12 @@ Ready? Type "submit kyc" to begin! ✨`,
 • bridge 1000 cngn to usdc - Swap tokens
 
 *💳 Cards & Payments:*
+• create card - Create new virtual card
 • my cards - View your cards
 • view card - See card details
+• freeze card - Temporarily disable card
+• unfreeze card - Reactivate card
+• delete card - Permanently remove card
 • send 1000 cngn to alice.base.eth
 • send 10 usdc to bob.base.eth
 
@@ -110,9 +114,11 @@ Need help with anything specific? 💬`,
 💰 Balance: 0 (empty)
 
 *Next Steps:*
-• Fund card: "buy cngn" or "buy usdc"
+• Fund card: "buy cngn" (cards use cNGN only)
 • Check balance: "balance"
 • Send money: "send [amount] [token] to [address]"
+
+*💡 Note:* Cards are funded with cNGN. For USDC, use direct wallet transfers.
 
 Your card is ready! 🚀`,
 

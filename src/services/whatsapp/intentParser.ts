@@ -188,7 +188,7 @@ export class IntentParser {
     ],
 
     // General
-    CANCEL: [/^(cancel|stop|abort|exit)/i, /^(no|nope|nevermind)/i],
+    CANCEL: [/^(cancel|stop|abort|exit|back)/i, /^(no|nope|nevermind)/i],
   };
 
   /**

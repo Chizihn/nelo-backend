@@ -195,6 +195,14 @@ export class SessionManager {
   }
 
   /**
+   * Check if user is awaiting card selection
+   */
+  static isAwaitingCardSelection(whatsappNumber: string): boolean {
+    const session = this.sessions.get(whatsappNumber);
+    return !!(session && session.awaitingCardSelection);
+  }
+
+  /**
    * Check if user is awaiting security answer
    */
   static isAwaitingSecurityAnswer(whatsappNumber: string): boolean {
