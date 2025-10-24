@@ -173,6 +173,21 @@ export class NeloContractService {
   }
 
   /**
+   * Check if a token is whitelisted in the Nelo custody contract
+   */
+  static async isTokenWhitelisted(tokenAddress: string): Promise<boolean> {
+    try {
+      const contract = this.getNeloContract();
+      const isWhitelisted = await contract.tokenWhitelisted(tokenAddress);
+      logger.info(`Token ${tokenAddress} whitelisted status: ${isWhitelisted}`);
+      return isWhitelisted;
+    } catch (error) {
+      logger.error("Failed to check token whitelist status:", error);
+      return false; // Default to false if check fails
+    }
+  }
+
+  /**
    * Transfer tokens to custodian (operator only)
    * This would be used for off-ramp operations
    */
@@ -231,19 +246,6 @@ export class NeloContractService {
         success: false,
         error: error instanceof Error ? error.message : "Transfer failed",
       };
-    }
-  }
-
-  /**
-   * Check if token is whitelisted
-   */
-  static async isTokenWhitelisted(tokenAddress: string): Promise<boolean> {
-    try {
-      const contract = this.getNeloContract();
-      return await contract.tokenWhitelisted(tokenAddress);
-    } catch (error) {
-      logger.error("Failed to check token whitelist:", error);
-      return false;
     }
   }
 

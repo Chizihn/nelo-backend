@@ -59,6 +59,48 @@ export class MessageHandler {
         return;
       }
 
+      // Handle card selection
+      if (session.awaitingCardSelection) {
+        const cardNumber = parseInt(messageText);
+        const cards = session.availableCards || [];
+
+        if (cardNumber >= 1 && cardNumber <= cards.length) {
+          const selectedCard = cards[cardNumber - 1];
+
+          // Clear selection state
+          SessionManager.updateSession(message.from, {
+            awaitingCardSelection: false,
+            cardSelectionType: undefined,
+            availableCards: undefined,
+          });
+
+          // Handle based on selection type
+          if (session.cardSelectionType === "VIEW") {
+            const mockData =
+              selectedCard.metadata?.cardData || selectedCard.metadata;
+
+            await this.whatsappService.sendMessage(
+              message.from,
+              `💳 *Card Details*
+
+Number: ${selectedCard.cardNumber}
+Expiry: ${mockData?.expiryMonth || "12"}/${mockData?.expiryYear || "28"}
+CVV: ${mockData?.cvv || "123"}
+Balance: ${selectedCard.cNGNBalance} cNGN
+
+⚠️ Keep details private`
+            );
+            return;
+          }
+        } else {
+          await this.whatsappService.sendMessage(
+            message.from,
+            `❌ Invalid selection. Choose 1-${cards.length}`
+          );
+          return;
+        }
+      }
+
       // Handle PIN verification
       if (SessionManager.isAwaitingPin(message.from)) {
         if (/^\d{4}$/.test(messageText)) {
@@ -535,34 +577,41 @@ Type "create card" to get started!`;
       const cards = await CardService.getUserCards(user.id);
 
       if (cards.length === 0) {
-        return `📱 You don't have any cards yet.
-
-Type "create card" to get started!`;
+        return `📱 No cards yet. Type "create card" to get started!`;
       }
 
-      // Get the most recent card
-      const card = cards[0];
-      const cardMetadata = card.metadata as any;
-      const mockData = cardMetadata?.cardData || cardMetadata;
+      // If only one card, show it directly
+      if (cards.length === 1) {
+        const card = cards[0];
+        const mockData = card.metadata?.cardData || card.metadata;
 
-      return `💳 *Your Virtual Card Details*
+        return `💳 *Card Details*
 
-🎴 Card Number: ${card.cardNumber}
-📅 Expiry: ${mockData?.expiryMonth || "12"}/${mockData?.expiryYear || "28"}
-🔒 CVV: ${mockData?.cvv || "123"}
-🏷️ Type: ${mockData?.brand?.toUpperCase() || "VISA"}
-💰 Balance: ${card.cNGNBalance} cNGN
-📱 Status: ${card.status}
+Number: ${card.cardNumber}
+Expiry: ${mockData?.expiryMonth || "12"}/${mockData?.expiryYear || "28"}
+CVV: ${mockData?.cvv || "123"}
+Balance: ${card.cNGNBalance} cNGN
 
-*Security Notice:*
-⚠️ Keep these details private
-⚠️ Never share CVV with anyone
-⚠️ Use only on trusted websites
+⚠️ Keep details private`;
+      }
 
-*Actions:*
-• Fund card: "buy cngn"
-• Check balance: "balance"
-• View transactions: "history"`;
+      // Multiple cards - let user select
+      let response = `💳 *Select Card to View*\n\n`;
+      cards.forEach((card, index) => {
+        response += `${index + 1}. ****${card.cardNumber.slice(-4)} (${
+          card.cNGNBalance
+        } cNGN)\n`;
+      });
+      response += `\nReply with number (1-${cards.length})`;
+
+      // Set session state for card selection
+      SessionManager.updateSession(user.whatsappNumber, {
+        awaitingCardSelection: true,
+        cardSelectionType: "VIEW",
+        availableCards: cards,
+      });
+
+      return response;
     } catch (error) {
       logger.error("Error viewing card details:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
@@ -850,7 +899,10 @@ Your Web3 financial assistant for Nigeria 🇳🇬
 3. Create virtual card: "create card"
 4. Buy crypto: "buy cngn"
 
-Type "submit kyc" to begin! ✨`;
+Type "submit kyc" to begin! ✨
+
+*Need help?* Contact support:
+📧 nelovirtualcards@gmail.com`;
       }
 
       // KYC done, needs PIN
@@ -866,7 +918,10 @@ Next step: Set up your security PIN
 • Create card: "create card"
 • Buy crypto: "buy cngn"
 
-Type "setup pin" to continue! 🔒`;
+Type "setup pin" to continue! 🔒
+
+*Need help?* Contact support:
+📧 nelovirtualcards@gmail.com`;
       }
 
       // KYC + PIN done, needs card
@@ -880,7 +935,10 @@ Ready to create your virtual card?
 • Buy crypto: "buy cngn"
 • Check balance: "balance"
 
-Type "create card" to get started! 🚀`;
+Type "create card" to get started! 🚀
+
+*Need help?* Contact support:
+📧 nelovirtualcards@gmail.com`;
       }
 
       // Fully set up user
@@ -907,6 +965,9 @@ Type "create card" to get started! 🚀`;
 *🏷️ Basename:*
 • set basename alice.base.eth
 • check basename alice.base.eth
+
+*Need help?* Contact support:
+📧 nelovirtualcards@gmail.com
 
 Need help with anything specific? 💬`;
     } catch (error) {

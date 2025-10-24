@@ -50,30 +50,65 @@ export class IntegratedOnRampService {
         return { success: false, error: "Maximum deposit is ₦1,000,000" };
       }
 
-      // Use MockFiatService for demo (in production, use real Flutterwave)
-      const mockResult = await MockFiatService.initiateFiatToCNGN({
-        userId,
-        amount: amountNGN,
-        paymentMethod,
-        virtualAccountNumber: user.virtualAccountNumber || undefined,
-      });
+      // Use REAL Flutterwave for NGN deposits
+      if (user.virtualAccountNumber && user.virtualBankName) {
+        // User has virtual account - use it
+        const paymentReference = `nelo_deposit_${userId}_${Date.now()}`;
 
-      if (!mockResult.success) {
+        const paymentInstructions = `*Transfer ₦${amountNGN.toLocaleString()} to:*
+
+🏦 Account: ${user.virtualAccountNumber}
+🏛️ Bank: ${user.virtualBankName}
+👤 Name: Your Nelo Account
+📋 Reference: ${paymentReference}
+
+⚠️ *Important:*
+• Transfer the exact amount: ₦${amountNGN.toLocaleString()}
+• Use the reference above
+• Transfer will be processed automatically
+
+*After making the transfer:*
+Type "paid ${amountNGN}" to confirm your payment`;
+
+        // Create pending transaction
+        await prisma.transaction.create({
+          data: {
+            userId,
+            type: "DEPOSIT",
+            amount: amountNGN,
+            currency: "NGN",
+            status: "PENDING",
+            description: `Flutterwave deposit: ₦${amountNGN}`,
+            metadata: {
+              paymentReference,
+              paymentMethod,
+              virtualAccount: user.virtualAccountNumber,
+              flutterwaveIntegration: true,
+            },
+          },
+        });
+
         return {
-          success: false,
-          error: mockResult.error || "Failed to initiate payment",
+          success: true,
+          paymentReference,
+          paymentInstructions,
+        };
+      } else {
+        // Fallback to mock for users without virtual accounts
+        const mockResult = await MockFiatService.initiateFiatToCNGN({
+          userId,
+          amount: amountNGN,
+          paymentMethod,
+          virtualAccountNumber: undefined,
+        });
+
+        return {
+          success: mockResult.success,
+          paymentReference: mockResult.paymentReference,
+          paymentInstructions: mockResult.paymentInstructions,
+          error: mockResult.error,
         };
       }
-
-      logger.info(
-        `OnRamp deposit initiated: ${mockResult.paymentReference} for user ${userId}`
-      );
-
-      return {
-        success: true,
-        paymentReference: mockResult.paymentReference,
-        paymentInstructions: mockResult.paymentInstructions,
-      };
     } catch (error) {
       logger.error("Error in OnRamp deposit:", error);
       return {
@@ -119,31 +154,33 @@ export class IntegratedOnRampService {
       const amountNGN = Number(transaction.amount);
       const amountCNGN = amountNGN; // 1:1 conversion for demo
 
-      // Step 1: Deposit cNGN to Nelo custody contract
+      // Step 1: ACTUALLY mint cNGN to user's wallet
       let depositResult;
       try {
-        // In production, you would use the deployer wallet to deposit cNGN
-        // For demo, we'll simulate this
-        const amountWei = ethers.parseUnits(
-          amountCNGN.toString(),
-          CONSTANTS.CNGN_DECIMALS
+        // Use CngnService to mint cNGN directly to user's wallet
+        const { CngnService } = await import("../blockchain/cngnService");
+
+        depositResult = await CngnService.mintToUser(
+          user.walletAddress,
+          amountCNGN.toString()
         );
 
-        // Mock successful blockchain deposit
-        depositResult = {
-          success: true,
-          txHash: `0x${Math.random().toString(16).substring(2, 66)}`,
-          gasUsed: "21000",
-        };
+        if (!depositResult.success) {
+          logger.error("cNGN minting failed:", depositResult.error);
+          return {
+            success: false,
+            error: `Failed to mint cNGN: ${depositResult.error}`,
+          };
+        }
 
         logger.info(
-          `Mock cNGN deposit: ${amountCNGN} cNGN to ${user.walletAddress}`
+          `REAL cNGN minted: ${amountCNGN} cNGN to ${user.walletAddress}, TX: ${depositResult.txHash}`
         );
       } catch (blockchainError) {
-        logger.error("Blockchain deposit failed:", blockchainError);
+        logger.error("Blockchain minting failed:", blockchainError);
         return {
           success: false,
-          error: "Blockchain deposit failed",
+          error: "Blockchain minting failed",
         };
       }
 
@@ -175,7 +212,7 @@ export class IntegratedOnRampService {
           `✅ *Deposit Successful!*\n\n` +
           `Amount: ₦${amountNGN.toLocaleString()}\n` +
           `Received: ${amountCNGN.toLocaleString()} cNGN\n` +
-          `Transaction: ${depositResult.txHash.slice(0, 10)}...\n\n` +
+          `Transaction: ${depositResult.txHash?.slice(0, 10)}...\n\n` +
           `Your cNGN is now available in your wallet! 🎉\n\n` +
           `Type "balance" to check your balance.`;
 
@@ -260,44 +297,118 @@ export class IntegratedOnRampService {
         return { success: false, error: "User not found" };
       }
 
-      // Create transaction record
+      // Directly mint cNGN to user's wallet (skip the transaction lookup)
+      const amountCNGN = amountNGN; // 1:1 conversion
+
+      // Step 1: Transfer cNGN to user's wallet
+      const { CngnService } = await import("../blockchain/cngnService");
+
+      const transferResult = await CngnService.mintToUser(
+        user.walletAddress,
+        amountCNGN.toString()
+      );
+
+      if (!transferResult.success) {
+        return {
+          success: false,
+          error: `Failed to transfer cNGN: ${transferResult.error}`,
+        };
+      }
+
+      // Step 2: Check if cNGN is whitelisted for custody (optional enhancement)
+      let finalResult = transferResult;
+      let custodyUsed = false;
+
+      try {
+        const { NeloContractService } = await import(
+          "../blockchain/neloContractService"
+        );
+
+        const isWhitelisted = await NeloContractService.isTokenWhitelisted(
+          CONTRACT_ADDRESSES.CNGN_TOKEN || ""
+        );
+
+        if (isWhitelisted && user.encryptedPrivateKey) {
+          logger.info(
+            "cNGN is whitelisted, attempting custody deposit for enhanced security"
+          );
+
+          // Optional: Deposit to custody for enhanced security
+          const custodyResult = await NeloContractService.depositTokens(
+            user.encryptedPrivateKey,
+            CONTRACT_ADDRESSES.CNGN_TOKEN || "",
+            amountCNGN.toString()
+          );
+
+          if (custodyResult.success) {
+            finalResult = custodyResult;
+            custodyUsed = true;
+            logger.info("Successfully deposited cNGN to Nelo custody");
+          } else {
+            logger.warn(
+              "Custody deposit failed, tokens remain in wallet:",
+              custodyResult.error
+            );
+          }
+        } else {
+          logger.info(
+            "cNGN not whitelisted or no private key, keeping tokens in wallet"
+          );
+        }
+      } catch (custodyError) {
+        logger.warn(
+          "Custody check/deposit failed, tokens remain in wallet:",
+          custodyError
+        );
+      }
+
+      const depositResult = finalResult;
+
+      // Step 2: Create completed transaction record
       const transaction = await prisma.transaction.create({
         data: {
           userId,
           type: "DEPOSIT",
           amount: amountNGN,
-          currency: "NGN",
-          status: "PENDING",
-          description: `Manual payment confirmation: ₦${amountNGN}`,
+          currency: "CNGN",
+          status: "COMPLETED",
+          txHash: depositResult.txHash,
+          description: `Manual payment confirmation: ₦${amountNGN} → ${amountCNGN} cNGN`,
           metadata: {
             paymentReference,
             paymentMethod: "BANK_TRANSFER",
             manualConfirmation: true,
             confirmedAt: new Date().toISOString(),
+            cngnMinted: amountCNGN,
+            txHash: depositResult.txHash,
+            custodyUsed: custodyUsed,
+            storageLocation: custodyUsed ? "custody" : "wallet",
           },
         },
       });
 
-      // Process the payment confirmation
-      const result = await this.confirmPaymentAndMintCNGN(paymentReference);
+      // Step 3: Send WhatsApp notification
+      try {
+        const { WhatsAppService } = await import("../whatsapp/whatsappService");
+        const whatsappService = new WhatsAppService();
 
-      if (result.success) {
-        return {
-          success: true,
-          txHash: result.txHash,
-        };
-      } else {
-        // Update transaction as failed
-        await prisma.transaction.update({
-          where: { id: transaction.id },
-          data: { status: "FAILED" },
-        });
+        const message =
+          `✅ *Deposit Successful!*\n\n` +
+          `Amount: ₦${amountNGN.toLocaleString()}\n` +
+          `Received: ${amountCNGN.toLocaleString()} cNGN\n` +
+          `Transaction: ${depositResult.txHash?.slice(0, 10)}...\n\n` +
+          `Your cNGN is now available in your wallet! 🎉\n\n` +
+          `Type "balance" to check your balance.`;
 
-        return {
-          success: false,
-          error: result.error || "Payment confirmation failed",
-        };
+        await whatsappService.sendMessage(user.whatsappNumber, message);
+      } catch (notificationError) {
+        logger.error("Failed to send deposit notification:", notificationError);
       }
+
+      return {
+        success: true,
+        txHash: depositResult.txHash || "N/A",
+      };
     } catch (error) {
       logger.error("Error confirming manual payment:", error);
       return {

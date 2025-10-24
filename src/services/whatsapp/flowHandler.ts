@@ -361,7 +361,70 @@ Please try again: "submit kyc"`;
       return `🔐 *PIN Required*\n\nYou need to set up a transaction PIN first for security.\n\nType "setup pin" to get started.`;
     }
 
-    // Set awaiting PIN state
+    // For SEND_MONEY, show cost breakdown including gas fees
+    if (transactionType === "SEND_MONEY") {
+      try {
+        const { FeeService } = await import("../payment/feeService");
+        const { UserService } = await import("../user/userService");
+        const { BasenameService } = await import(
+          "../blockchain/basenameService"
+        );
+
+        // Resolve recipient address if it's a basename
+        let recipientAddress = transactionData.recipient;
+        if (transactionData.recipient.endsWith(".base.eth")) {
+          const resolved = await BasenameService.resolveBasename(
+            transactionData.recipient
+          );
+          if (!resolved.isValid) {
+            return `❌ Could not resolve ${transactionData.recipient}. Please check the basename.`;
+          }
+          recipientAddress = resolved.address;
+        }
+
+        // Calculate total cost including gas fees
+        const costBreakdown = await FeeService.calculateTotalTransactionCost(
+          transactionData.amount,
+          "TRANSFER"
+        );
+
+        // Check user balance
+        const user = await UserService.getUserById(session.userId);
+        if (user?.walletAddress) {
+          const { CngnService } = await import("../blockchain/cngnService");
+          const balance = await CngnService.getBalance(user.walletAddress);
+
+          if (parseFloat(balance.balance) < costBreakdown.totalCostNGN) {
+            return `❌ Insufficient balance\n\n${
+              costBreakdown.breakdown
+            }\n\nYou have: ${parseFloat(
+              balance.balance
+            ).toLocaleString()} cNGN\nYou need: ${costBreakdown.totalCostNGN.toLocaleString()} cNGN\n\nPlease fund your wallet: "buy cngn"`;
+          }
+        }
+
+        // Set awaiting PIN state with enhanced data
+        SessionManager.setAwaitingPin(whatsappNumber, {
+          type: transactionType,
+          data: {
+            ...transactionData,
+            recipientAddress,
+            costBreakdown,
+          },
+        });
+
+        return `💸 *Send ${transactionData.amount} cNGN*\n\nTo: ${
+          transactionData.recipient
+        }\nAddress: ${recipientAddress.slice(0, 10)}...\n\n${
+          costBreakdown.breakdown
+        }\n\n🔐 Enter your PIN to confirm:`;
+      } catch (error) {
+        logger.error("Error calculating transaction cost:", error);
+        return `❌ Failed to calculate transaction cost. Please try again.`;
+      }
+    }
+
+    // Set awaiting PIN state for other transaction types
     SessionManager.setAwaitingPin(whatsappNumber, {
       type: transactionType,
       data: transactionData,
@@ -387,25 +450,37 @@ Please try again: "submit kyc"`;
     try {
       switch (pendingTx.type) {
         case "SEND_MONEY":
-          const sendResult = await CardService.sendMoney(
-            session.userId,
+          // Import services
+          const { FeeService } = await import("../payment/feeService");
+          const { UserService } = await import("../user/userService");
+          const { CONTRACT_ADDRESSES } = await import("@/config/blockchain");
+
+          // Get user for private key
+          const user = await UserService.getUserById(session.userId);
+          if (!user || !user.encryptedPrivateKey) {
+            return `❌ User wallet not found. Please contact support.`;
+          }
+
+          const sendResult = await FeeService.processTransferWithUserPaidFees(
+            user.encryptedPrivateKey,
+            pendingTx.data.recipientAddress,
             pendingTx.data.amount,
-            pendingTx.data.recipient
+            CONTRACT_ADDRESSES.CNGN_TOKEN || ""
           );
 
           if (sendResult.success) {
-            return `✅ *Money Sent Successfully!*\n\n💸 Amount: ${
-              pendingTx.data.amount
-            } cNGN\n📍 To: ${
-              pendingTx.data.recipient
-            }\n🔗 TX: ${sendResult.txHash?.slice(
-              0,
-              10
-            )}...\n\nView on explorer: https://sepolia.basescan.org/tx/${
-              sendResult.txHash
-            }`;
+            const fees = sendResult.feesCollected;
+            return `✅ *Transfer Successful!*
+💸 Sent: ${pendingTx.data.amount} cNGN
+👤 To: ${pendingTx.data.recipient}
+💰 Service fee: ${fees?.serviceFee.toLocaleString()} cNGN
+⛽ Gas fee: ${fees?.gasFeeNGN.toLocaleString()} cNGN
+💳 Total cost: ${fees?.totalFees.toLocaleString()} cNGN
+🔗 TX: ${sendResult.txHash?.slice(0, 10)}...
+Your transfer is complete! 🎉`;
           } else {
-            return `❌ Transfer failed: ${sendResult.error}`;
+            return `❌ Transfer failed: ${sendResult.error}
+Please try again or contact support.`;
           }
 
         case "DEPOSIT_TO_CARD":

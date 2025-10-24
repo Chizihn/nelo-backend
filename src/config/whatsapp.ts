@@ -75,6 +75,9 @@ Ready? Type "submit kyc" to begin! ✨`,
 • set basename alice.base.eth
 • check basename alice.base.eth
 
+*Need help?* Contact support:
+📧 nelovirtualcards@gmail.com
+
 Need help with anything specific? 💬`,
 
   BALANCE_INFO: (balances: any) => {
@@ -129,7 +132,10 @@ View on Base: https://sepolia.basescan.org/tx/${txHash}
 
 Type "balance" to check updated balance.`,
 
-  ERROR_GENERIC: `❌ Something went wrong. Please try again or type "help" for assistance.`,
+  ERROR_GENERIC: `❌ Something went wrong. Please try again or type "help" for assistance.
+
+*Need help?* Contact support:
+📧 nelovirtualcards@gmail.com`,
 
   ERROR_INSUFFICIENT_BALANCE: (token: string) =>
     `❌ Insufficient ${token.toUpperCase()} balance. Buy more with "buy ${token.toLowerCase()}"`,

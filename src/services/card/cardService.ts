@@ -430,7 +430,7 @@ export class CardService {
       }
 
       // Calculate fee and check balance
-      const feeInfo = FeeService.calculateTransactionFee(amount);
+      const feeInfo = await FeeService.calculateTransactionFee(amount);
       const balance = await CngnService.getBalance(user.walletAddress);
 
       if (parseFloat(balance.balance) < feeInfo.originalAmount) {

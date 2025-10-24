@@ -12,6 +12,11 @@ export interface UserSession {
   awaitingSecurityAnswer?: boolean;
   pendingTransaction?: any;
   expiresAt: number; // Add explicit expiry timestamp
+
+  // Card selection properties
+  awaitingCardSelection?: boolean;
+  cardSelectionType?: "VIEW" | "FUND" | "MANAGE";
+  availableCards?: any[];
 }
 
 export class SessionManager {

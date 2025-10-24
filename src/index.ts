@@ -10,6 +10,7 @@ import cardRoutes from "./routes/card.routes";
 import userRoutes from "./routes/user.routes";
 import transactionRoutes from "./routes/transaction.routes";
 import paymentRoutes from "./routes/payment.routes";
+import adminRoutes from "./routes/admin.routes";
 import { env } from "./config/env";
 import logger from "./utils/logger";
 
@@ -98,6 +99,7 @@ app.use("/api/cards", cardRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/admin", adminRoutes);
 
 // Root endpoint
 app.get("/", (req, res) => {
@@ -124,6 +126,12 @@ const server = app.listen(PORT, () => {
   // logger.info(`📱 Environment: ${env.NODE_ENV}`);
   // logger.info(`🔗 Webhook URL: http://localhost:${PORT}/webhook/whatsapp`);
   // logger.info(`💳 Virtual Card Backend is ready!`);
+
+  // Start message worker for periodic user engagement
+  if (env.NODE_ENV === "production") {
+    const { messageWorker } = require("./services/worker/messageWorker");
+    messageWorker.start();
+  }
 });
 
 // Graceful shutdown
