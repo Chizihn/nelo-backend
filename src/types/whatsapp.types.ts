@@ -70,10 +70,29 @@ export interface WhatsAppOutgoingMessage {
 export interface UserSession {
   userId: string;
   whatsappNumber: string;
+  // Flow control
   currentFlow?: string;
-  flowData?: Record<string, any>;
+  flowStep?: number;
+  flowData?: any;
+  // Activity tracking
   lastActivity: Date;
   messageCount: number;
+  lastInput?: string;
+  lastMessageId?: string;
+  expiresAt: number;
+
+  // Transaction / PIN state
+  awaitingPin?: boolean;
+  awaitingSecurityAnswer?: boolean;
+  pendingTransaction?: any;
+
+  // Card selection properties
+  awaitingCardSelection?: boolean;
+  cardSelectionType?: "VIEW" | "FUND" | "MANAGE";
+  availableCards?: any[];
+
+  // Welcome message tracking
+  isFirstMessage?: boolean;
 }
 
 export interface BotCommand {
@@ -92,7 +111,7 @@ export interface MessageContext {
     walletAddress: string;
     basename?: string;
   };
-  session?: UserSession;
+  session: UserSession;
   contact?: {
     name: string;
     wa_id: string;

@@ -41,10 +41,21 @@ export class InMemorySessionManager {
           userId,
           whatsappNumber,
           currentFlow: undefined,
+          flowStep: undefined,
           flowData: {},
           lastActivity: new Date(),
           messageCount: 0,
-        };
+          expiresAt:
+            Date.now() + CONSTANTS.SESSION_EXPIRY_HOURS * 60 * 60 * 1000,
+          awaitingPin: false,
+          awaitingSecurityAnswer: false,
+          pendingTransaction: undefined,
+          awaitingCardSelection: false,
+          availableCards: undefined,
+          lastInput: undefined,
+          lastMessageId: undefined,
+          isFirstMessage: true,
+        } as UserSession;
 
         this.sessions.set(userId, session);
         logger.info(`New session created for user ${userId}`);

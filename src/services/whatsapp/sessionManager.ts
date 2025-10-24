@@ -1,23 +1,5 @@
 import { logger } from "@/utils/logger";
-
-export interface UserSession {
-  userId: string;
-  whatsappNumber: string;
-  currentFlow?: string;
-  flowStep?: number;
-  flowData?: any;
-  lastActivity: Date;
-  messageCount: number;
-  awaitingPin?: boolean;
-  awaitingSecurityAnswer?: boolean;
-  pendingTransaction?: any;
-  expiresAt: number; // Add explicit expiry timestamp
-
-  // Card selection properties
-  awaitingCardSelection?: boolean;
-  cardSelectionType?: "VIEW" | "FUND" | "MANAGE";
-  availableCards?: any[];
-}
+import { UserSession } from "@/types/whatsapp.types";
 
 export class SessionManager {
   private static sessions = new Map<string, UserSession>();
@@ -39,7 +21,17 @@ export class SessionManager {
         lastActivity: new Date(),
         messageCount: 0,
         expiresAt: Date.now() + this.SESSION_TIMEOUT,
-      };
+        // Initialize optional flags
+        awaitingPin: false,
+        awaitingSecurityAnswer: false,
+        pendingTransaction: undefined,
+        awaitingCardSelection: false,
+        availableCards: undefined,
+        lastInput: undefined,
+        lastMessageId: undefined,
+        isFirstMessage: true,
+        flowData: undefined,
+      } as UserSession;
       this.sessions.set(whatsappNumber, session);
       logger.info(`New session created for user: ${whatsappNumber}`);
     } else {
@@ -53,7 +45,16 @@ export class SessionManager {
           lastActivity: new Date(),
           messageCount: 0,
           expiresAt: Date.now() + this.SESSION_TIMEOUT,
-        };
+          awaitingPin: false,
+          awaitingSecurityAnswer: false,
+          pendingTransaction: undefined,
+          awaitingCardSelection: false,
+          availableCards: undefined,
+          lastInput: undefined,
+          lastMessageId: undefined,
+          isFirstMessage: true,
+          flowData: undefined,
+        } as UserSession;
         this.sessions.set(whatsappNumber, session);
         logger.info(`Expired session replaced for user: ${whatsappNumber}`);
       } else {

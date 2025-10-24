@@ -10,10 +10,14 @@ import { logger } from "@/utils/logger";
 import { MESSAGE_TEMPLATES } from "@/config/whatsapp";
 import { IntentParser } from "./intentParser";
 import { ResponseBuilder } from "./responseBuilder";
-import { SessionManager, UserSession } from "./sessionManager";
+import { SessionManager } from "./sessionManager";
+import { UserSession } from "@/types/whatsapp.types";
 import { FlowHandler } from "./flowHandler";
 import { WhatsAppService } from "./whatsappService";
 import { TokenService } from "../blockchain/tokenService";
+import { CONTRACT_ADDRESSES } from "@/config/blockchain";
+import prisma from "@/config/database";
+import { NeloContractService } from "../blockchain/neloContractService";
 
 export class MessageHandler {
   private intentParser: IntentParser;
@@ -254,7 +258,18 @@ Balance: ${selectedCard.cNGNBalance} cNGN
       case "GREETING":
       case "HELP":
         return await this.getContextualHelp(user!);
+      case "GREETING":
+        // Only send welcome message for new users (messageCount = 0)
+        if (context.session.messageCount <= 1) {
+          const welcomeMessage = context.contact?.name
+            ? MESSAGE_TEMPLATES.PERSONALIZED_WELCOME(context.contact.name)
+            : MESSAGE_TEMPLATES.WELCOME;
+          return welcomeMessage;
+        }
+        return "👋 Hey! How can I help you today?\n\nType 'help' to see available commands.";
 
+      case "HELP":
+        return await this.getContextualHelp(user!);
       case "CREATE_CARD":
         return await this.handleCreateCard(user!);
 
@@ -407,12 +422,13 @@ Type "help" for all commands.`;
 
         logger.info(`User created successfully: ${user.id}`);
 
-        // Send personalized welcome message
-        const welcomeMessage = contactName
-          ? MESSAGE_TEMPLATES.PERSONALIZED_WELCOME(contactName)
-          : MESSAGE_TEMPLATES.WELCOME;
-
-        await this.whatsappService.sendMessage(whatsappNumber, welcomeMessage);
+        // For new users, add a property to indicate first message
+        // Set first message flag in session for new users
+        const session = SessionManager.getOrCreateSession(
+          user.id,
+          whatsappNumber
+        );
+        session.isFirstMessage = true;
       } else {
         logger.info(`Existing user found: ${user.id}`);
       }
@@ -520,7 +536,7 @@ Type "submit kyc" to complete your verification and create your card.`;
    */
   private async handleCheckBalance(user: any): Promise<string> {
     try {
-      // Get balances for available tokens
+      // Get balances for available tokens in custody
       const balances = {
         cngn: 0,
         usdc: 0,
@@ -528,24 +544,32 @@ Type "submit kyc" to complete your verification and create your card.`;
       };
 
       if (user.walletAddress) {
-        // Get cNGN balance
+        const { NeloContractService } = await import(
+          "../blockchain/neloContractService"
+        );
+
+        // Get cNGN balance from custody contract
         try {
-          const { CngnService } = await import("../blockchain/cngnService");
-          const cngnBalance = await CngnService.getBalance(user.walletAddress);
-          balances.cngn = parseFloat(cngnBalance.balance);
-          logger.info(`Retrieved cNGN balance: ${balances.cngn}`);
+          const cngnBalance = await NeloContractService.getUserBalance(
+            user.walletAddress,
+            CONTRACT_ADDRESSES.CNGN_TOKEN
+          );
+          balances.cngn = parseFloat(cngnBalance);
+          logger.info(`Retrieved cNGN balance from custody: ${balances.cngn}`);
         } catch (error) {
-          logger.warn("Failed to get cNGN balance:", error);
+          logger.warn("Failed to get cNGN balance from custody:", error);
         }
 
-        // Get USDC balance
+        // Get USDC balance from custody contract
         try {
-          const { UsdcService } = await import("../blockchain/usdcService");
-          const usdcBalance = await UsdcService.getBalance(user.walletAddress);
-          balances.usdc = parseFloat(usdcBalance.balance);
-          logger.info(`Retrieved USDC balance: ${balances.usdc}`);
+          const usdcBalance = await NeloContractService.getUserBalance(
+            user.walletAddress,
+            CONTRACT_ADDRESSES.USDC_TOKEN
+          );
+          balances.usdc = parseFloat(usdcBalance);
+          logger.info(`Retrieved USDC balance from custody: ${balances.usdc}`);
         } catch (error) {
-          logger.warn("Failed to get USDC balance:", error);
+          logger.warn("Failed to get USDC balance from custody:", error);
         }
       }
 
@@ -1154,8 +1178,8 @@ Example: "send 1000 to alice.base.eth"`;
 
   private async handleDeposit(user: any): Promise<string> {
     return `💰 *Deposit Crypto*
-
-Your wallet address:
+                const session = SessionManager.getOrCreateSession(user.id, whatsappNumber);
+                session.isFirstMessage = true;
 \`${user.walletAddress}\`
 
 You can:
@@ -1807,25 +1831,52 @@ Try again with: "buy ${amount}"`;
 Example: "paid 10000"`;
       }
 
-      // Use MockFiatService to confirm payment
-      const paymentReference = `nelo_deposit_${user.id}_${Date.now()}`;
+      // Generate a deterministic payment reference based on user ID and amount
+      const paymentReference = `nelo_deposit_${user.id}_${amount}`;
 
-      // First create the payment request
-      await MockFiatService.initiateFiatToCNGN({
-        userId: user.id,
-        amount: parseFloat(amount),
-        paymentMethod: "BANK_TRANSFER",
+      // First try to find an existing pending transaction
+      const existingTx = await prisma.transaction.findFirst({
+        where: {
+          userId: user.id,
+          type: "ONRAMP",
+          status: "PENDING",
+          amount: parseFloat(amount),
+        },
       });
 
-      // Then confirm it
+      // If no existing transaction, initiate a new one
+      if (!existingTx) {
+        await MockFiatService.initiateFiatToCNGN({
+          userId: user.id,
+          amount: parseFloat(amount),
+          paymentMethod: "BANK_TRANSFER",
+        });
+      }
+
+      // Confirm the payment - this will mint tokens and deposit to custody
       const result = await MockFiatService.confirmFiatPayment(paymentReference);
 
       if (result.success) {
+        // Get new balance to show user
+        let balance = "0";
+        try {
+          const { CngnService } = await import("../blockchain/cngnService");
+          const balanceResult = await CngnService.getBalance(
+            user.walletAddress
+          );
+          balance = balanceResult.balance;
+          logger.info(`Updated balance for ${user.id}: ${balance} cNGN`);
+        } catch (balanceError) {
+          logger.error("Failed to fetch updated balance:", balanceError);
+        }
+
         return `🎉 *Payment Confirmed!*
 
 ✅ Amount: ₦${parseFloat(amount).toLocaleString()} NGN
 ✅ cNGN Received: ${parseFloat(amount).toLocaleString()} cNGN
 ✅ Status: Completed
+✅ Funds secured in custody
+💰 Current Balance: ${parseFloat(balance).toLocaleString()} cNGN
 
 *Your wallet has been funded!*
 • Check balance: "balance"

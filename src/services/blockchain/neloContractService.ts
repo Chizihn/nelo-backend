@@ -26,24 +26,52 @@ export class NeloContractService {
   }
 
   /**
-   * Add retry logic for blockchain calls (Issue #14)
+   * Enhanced retry logic for blockchain calls with better error handling
    */
   private static async retryWithBackoff<T>(
     fn: () => Promise<T>,
     maxRetries: number = 3,
-    delayMs: number = 1000
+    delayMs: number = 1000,
+    operation: string = "blockchain operation"
   ): Promise<T> {
     for (let i = 0; i < maxRetries; i++) {
       try {
         return await fn();
       } catch (error) {
-        if (i === maxRetries - 1) throw error;
-        logger.warn(`Retry ${i + 1}/${maxRetries} after ${delayMs}ms`, error);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        delayMs *= 2; // Exponential backoff
+        // Log detailed error info
+        logger.warn(`${operation} failed (attempt ${i + 1}/${maxRetries}):`, {
+          error: error instanceof Error ? error.message : "Unknown error",
+          operation,
+          attempt: i + 1,
+          maxRetries,
+          delayMs,
+        });
+
+        // Check if error is retriable
+        if (
+          error instanceof Error &&
+          (error.message.includes("timeout") ||
+            error.message.includes("network") ||
+            error.message.includes("rate limit") ||
+            error.message.toLowerCase().includes("nonce"))
+        ) {
+          if (i === maxRetries - 1) {
+            logger.error(`${operation} failed after ${maxRetries} retries`);
+            throw error;
+          }
+
+          // Wait with exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          delayMs *= 2; // Exponential backoff
+          continue;
+        }
+
+        // Non-retriable error
+        logger.error(`${operation} failed with non-retriable error:`, error);
+        throw error;
       }
     }
-    throw new Error("Max retries exceeded");
+    throw new Error(`${operation}: Max retries exceeded`);
   }
 
   /**
@@ -58,7 +86,13 @@ export class NeloContractService {
       const wallet = WalletService.getWalletInstance(encryptedPrivateKey);
       const contract = this.getNeloContract(wallet);
 
-      const amountWei = ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS);
+      // Get token decimals from config
+      const decimals =
+        tokenAddress.toLowerCase() ===
+        CONTRACT_ADDRESSES.CNGN_TOKEN?.toLowerCase()
+          ? 6
+          : 6;
+      const amountWei = ethers.parseUnits(amount, decimals);
 
       const tx = await contract.deposit(tokenAddress, amountWei, {
         ...GAS_SETTINGS,
@@ -165,7 +199,11 @@ export class NeloContractService {
     try {
       const contract = this.getNeloContract();
       const balance = await contract.balanceOf(userAddress, tokenAddress);
-      return ethers.formatUnits(balance, CONSTANTS.CNGN_DECIMALS);
+
+      // Both tokens use 6 decimals
+      const decimals = 6;
+
+      return ethers.formatUnits(balance, decimals);
     } catch (error) {
       logger.error("Failed to get Nelo balance:", error);
       throw new Error("Failed to fetch custody balance");

@@ -1,4 +1,5 @@
-import { UserSession, SessionManager } from "./sessionManager";
+import { SessionManager } from "./sessionManager";
+import { UserSession } from "@/types/whatsapp.types";
 import { PinService } from "../security/pinService";
 import { KYCService } from "../kyc/kycService";
 import { UserService } from "../user/userService";
@@ -170,7 +171,17 @@ export class FlowHandler {
       case 2:
         // Full name validation
         const fullName = message.trim();
+        // Check if this is a new input, not a repeated message
+        if (flowData.lastInput === message) {
+          // Skip re-processing by returning previous response
+          return `✅ Name: ${flowData.fullName}
+
+  Optional: Enter your *ID number* or type "skip":
+  (BVN, NIN, Driver's License, etc.)`;
+        }
+
         if (!fullName || fullName.length < 3 || !fullName.includes(" ")) {
+          SessionManager.updateSession(whatsappNumber, { lastInput: message });
           return `❌ Please enter your full name with first and last name:
   Example: "John Doe" or "Mary Jane Smith"`;
         }
@@ -183,6 +194,7 @@ export class FlowHandler {
           firstName,
           lastName,
           fullName,
+          lastInput: message,
         });
 
         return `✅ Name: ${fullName}

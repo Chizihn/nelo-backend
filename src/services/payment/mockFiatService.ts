@@ -127,20 +127,83 @@ export class MockFiatService {
       let txHash = null;
 
       try {
-        // Mock blockchain transaction
-        txHash = `0x${Math.random().toString(16).substring(2, 66)}`;
+        // Use TokenService to ensure proper decimals handling
+        const { TokenService } = await import("../blockchain/tokenService");
 
-        // In a real implementation, you would:
-        // 1. Mint cNGN tokens to user's wallet
-        // 2. Or deposit pre-minted cNGN to Nelo custody contract
+        // Convert amount to proper decimal places
+        const amountWithDecimals = TokenService.parseAmount(
+          cngnAmount.toString(),
+          "cNGN"
+        );
+
+        // First mint tokens to user's wallet
+        const mintResult = await TokenService.mintToUser(
+          transaction.user.walletAddress,
+          amountWithDecimals,
+          "cNGN"
+        );
+
+        if (!mintResult.success) {
+          throw new Error(mintResult.error || "Failed to mint cNGN");
+        }
 
         logger.info(
-          `Mock cNGN minting: ${cngnAmount} cNGN for user ${transaction.userId}`
+          `cNGN minted: ${cngnAmount} cNGN for user ${transaction.userId} (tx: ${mintResult.txHash})`
+        );
+
+        // Get user's encrypted private key for custody deposit
+        const user = await prisma.user.findUnique({
+          where: { id: transaction.userId },
+          select: { encryptedPrivateKey: true },
+        });
+
+        if (!user?.encryptedPrivateKey) {
+          throw new Error("User private key not found");
+        }
+
+        // Approve custody contract to transfer tokens
+        const approveResult = await TokenService.approve(
+          user.encryptedPrivateKey,
+          CONTRACT_ADDRESSES.NELO_CUSTODY,
+          amountWithDecimals,
+          "cNGN"
+        );
+
+        if (!approveResult.success) {
+          throw new Error(
+            approveResult.error || "Failed to approve custody contract"
+          );
+        }
+
+        logger.info(
+          `Custody approved for ${cngnAmount} cNGN for user ${transaction.userId} (tx: ${approveResult.txHash})`
+        );
+
+        // Deposit to custody contract
+        const { NeloContractService } = await import(
+          "../blockchain/neloContractService"
+        );
+        const depositResult = await NeloContractService.depositTokens(
+          user.encryptedPrivateKey,
+          CONTRACT_ADDRESSES.CNGN_TOKEN,
+          amountWithDecimals
+        );
+
+        if (!depositResult.success) {
+          throw new Error(
+            depositResult.error || "Failed to deposit to custody"
+          );
+        }
+
+        txHash = depositResult.txHash;
+
+        // Log successful minting and deposit
+        logger.info(
+          `cNGN minted and deposited successfully: ${cngnAmount} cNGN for user ${transaction.userId} (tx: ${txHash})`
         );
       } catch (blockchainError) {
         logger.error("Blockchain transaction failed:", blockchainError);
-        // Continue with mock success for demo
-        txHash = `0x${"mock".repeat(16)}`;
+        throw blockchainError;
       }
 
       // Update transaction status

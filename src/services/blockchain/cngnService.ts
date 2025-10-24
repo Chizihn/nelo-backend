@@ -42,16 +42,16 @@ export class CngnService {
     try {
       const contract = this.getContract();
 
-      const [balance, decimals, symbol, name] = await Promise.all([
+      // Fixed decimals to 6 for cNGN
+      const [balance, symbol, name] = await Promise.all([
         contract.balanceOf(address),
-        contract.decimals(),
         contract.symbol(),
         contract.name(),
       ]);
 
       return {
-        balance: ethers.formatUnits(balance, decimals),
-        decimals: Number(decimals),
+        balance: ethers.formatUnits(balance, 6), // Fixed 6 decimals for cNGN
+        decimals: 6,
         symbol,
         name,
       };
@@ -74,7 +74,7 @@ export class CngnService {
       const contract = this.getContract(wallet);
 
       // Convert amount to wei (18 decimals for cNGN)
-      const amountWei = ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS);
+      const amountWei = ethers.parseUnits(amount, 6); // cNGN uses 6 decimals like USDC
 
       // Check balance first
       const balance = await contract.balanceOf(wallet.address);
@@ -137,7 +137,7 @@ export class CngnService {
       const wallet = WalletService.getWalletInstance(encryptedPrivateKey);
       const contract = this.getContract(wallet);
 
-      const amountWei = ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS);
+      const amountWei = ethers.parseUnits(amount, 6); // Fixed to 6 decimals
 
       const tx = await contract.approve(spenderAddress, amountWei, {
         ...GAS_SETTINGS,
@@ -171,7 +171,7 @@ export class CngnService {
     try {
       const contract = this.getContract();
       const allowance = await contract.allowance(ownerAddress, spenderAddress);
-      return ethers.formatUnits(allowance, CONSTANTS.CNGN_DECIMALS);
+      return ethers.formatUnits(allowance, 6); // Fixed to 6 decimals
     } catch (error) {
       logger.error("Failed to get allowance:", error);
       throw new Error("Failed to fetch allowance");
@@ -212,7 +212,7 @@ export class CngnService {
    */
   static formatAmount(
     amount: string,
-    decimals: number = CONSTANTS.CNGN_DECIMALS
+    decimals: number = 6 // Fixed to 6 decimals
   ): string {
     try {
       const formatted = ethers.formatUnits(amount, decimals);
@@ -238,7 +238,7 @@ export class CngnService {
    */
   static parseAmount(amount: string): string {
     try {
-      return ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS).toString();
+      return ethers.parseUnits(amount, 6).toString(); // Fixed to 6 decimals
     } catch (error) {
       throw new Error("Invalid amount format");
     }
@@ -275,7 +275,7 @@ export class CngnService {
       const wallet = new ethers.Wallet(minterKey, provider);
       const contract = this.getContract(wallet);
 
-      const amountWei = ethers.parseUnits(amount, CONSTANTS.CNGN_DECIMALS);
+      const amountWei = ethers.parseUnits(amount, 6); // Fixed to 6 decimals
 
       logger.info(
         `Minting ${amount} cNGN to ${userAddress} from ${wallet.address}`
