@@ -53,38 +53,29 @@ Ready? Type "submit kyc" to begin! ✨`,
 
   HELP: `🤖 *Nelo - Your Web3 Money Assistant*
 
-*🆔 Getting Started:*
-• submit kyc - Complete identity verification
-• setup pin - Set your security PIN
-• create card - Get your virtual card
-
-*💰 Buy Crypto:*
+*💰 Buy & Manage Crypto:*
 • buy cngn - Buy Nigerian Naira (cNGN)
-• buy 10000 - Buy ₦10,000 cNGN with bank transfer
-• buy crypto - See all options (cNGN only for now)
+• buy usdc - Buy USD Coin
+• balance - Check your portfolio
 
-*💳 Cards & Balance:*
-• balance - Check your crypto portfolio
-• my cards - View your virtual cards
-
-*💸 Send Money:*
+*💳 Cards & Payments:*
+• my cards - View your cards
+• view card - See card details
 • send 1000 to alice.base.eth
-• send 50 usdc to 0x1234...
 
-*🏦 Banking & Withdrawal:*
-• add bank - Link your Nigerian bank account
-• withdraw 5000 - Cash out to your bank
-• my banks - View saved bank accounts
+*🏦 Banking:*
+• add bank - Link Nigerian bank
+• withdraw 5000 - Cash out to bank
 
-*📊 Account & History:*
-• history - View recent transactions
-• profile - Your account information
+*📊 Account:*
+• history - View transactions
+• profile - Your account info
 
-*🔐 Security:*
-• setup pin - Create security PIN
-• reset pin - Change your PIN
+*🏷️ Basename:*
+• set basename alice.base.eth
+• check basename alice.base.eth
 
-*New to crypto?* Start with "submit kyc" then "create card"! 🚀`,
+Need help with anything specific? 💬`,
 
   BALANCE_INFO: (balances: any) => {
     let message = `💰 *Your Portfolio*\n\n`;

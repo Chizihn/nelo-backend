@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { CONSTANTS } from "./utils/constants";
 
@@ -45,19 +44,19 @@ app.use(
 );
 
 // Rate limiting
-const limiter = rateLimit({
-  windowMs: CONSTANTS.RATE_LIMIT_WINDOW_MS,
-  max: CONSTANTS.RATE_LIMIT_MAX_REQUESTS,
-  message: {
-    success: false,
-    error: "Too many requests",
-    code: "RATE_LIMIT_EXCEEDED",
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// const limiter = rateLimit({
+//   windowMs: CONSTANTS.RATE_LIMIT_WINDOW_MS,
+//   max: CONSTANTS.RATE_LIMIT_MAX_REQUESTS,
+//   message: {
+//     success: false,
+//     error: "Too many requests",
+//     code: "RATE_LIMIT_EXCEEDED",
+//   },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
 
-app.use(limiter);
+// app.use(limiter);
 
 // Body parsing middleware with security limits
 app.use(express.json({ limit: "10kb" })); // Reduced for security
@@ -103,7 +102,7 @@ app.use("/api/payment", paymentRoutes);
 // Root endpoint
 app.get("/", (req, res) => {
   res.status(200).json({
-    message: "Virtual Card Backend API",
+    message: "Nelo Backend API",
     version: "1.0.0",
     documentation: "/api/docs",
     health: "/health",

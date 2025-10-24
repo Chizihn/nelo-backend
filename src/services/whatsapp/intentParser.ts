@@ -31,9 +31,11 @@ export class IntentParser {
       /^(how much|what's my balance)/i,
     ],
 
-    LIST_CARDS: [
-      /^(my cards|list cards|show cards|cards)/i,
-      /^(all cards|view cards)/i,
+    LIST_CARDS: [/^(my cards|list cards|show cards|cards)$/i, /^(all cards)$/i],
+
+    VIEW_CARD: [
+      /^(view card|card details|show card|card info)$/i,
+      /^(my card|card)$/i,
     ],
 
     // Transactions - Multi-token support
@@ -63,9 +65,9 @@ export class IntentParser {
       /^(buy tether|add tether)/i,
     ],
 
-    BUY_CRYPTO: [/^(buy|buy crypto|add money|fund wallet)/i],
-
     BUY_AMOUNT: [/^buy\s+(\d+(?:\.\d+)?)$/i],
+
+    BUY_CRYPTO: [/^(buy crypto|add money|fund wallet)$/i],
 
     WITHDRAW: [
       /^(withdraw|cash out|off ramp|offramp)/i,

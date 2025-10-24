@@ -188,7 +188,7 @@ export class MessageHandler {
     switch (type) {
       case "GREETING":
       case "HELP":
-        return MESSAGE_TEMPLATES.HELP;
+        return await this.getContextualHelp(user!);
 
       case "CREATE_CARD":
         return await this.handleCreateCard(user!);
@@ -198,6 +198,9 @@ export class MessageHandler {
 
       case "LIST_CARDS":
         return await this.handleListCards(user!);
+
+      case "VIEW_CARD":
+        return await this.handleViewCard(user!);
 
       case "SEND_MONEY":
         return await this.handleSendMoney(user!, data);
@@ -369,11 +372,15 @@ Type "setup pin" to secure your account.
 📱 Status: Active
 
 *Next Steps:*
-1. Buy cNGN: "buy cngn" or "buy 10000"
-2. Check balance: "balance"
-3. Send money: "send 1000 to alice.base.eth"
+1. 💰 Fund card: "buy 10000" (₦10,000 cNGN)
+2. 👀 View details: "view card"
+3. 📊 Check balance: "balance"
 
-Your card is ready! Fund it to start using. 🚀`;
+*After funding:*
+• Send money: "send 1000 to alice.base.eth"
+• Withdraw: "withdraw 5000"
+
+Your card is ready! 🚀`;
       } else {
         if (
           result.error?.includes("KYC") ||
@@ -465,7 +472,7 @@ Type "submit kyc" to complete your verification and create your card.`;
 • Buy USDC: "buy usdc"
 • Create card: "create card"
 
-*Available tokens:* cNGN and USDC on Base Sepolia`;
+*Supported tokens:* cNGN (Nigerian Naira) and USDC (US Dollar) on Base Sepolia`;
     }
 
     let response = `💰 *Your Portfolio*\n\n`;
@@ -508,9 +515,56 @@ Type "create card" to get started!`;
 `;
       });
 
+      response += `*Actions:*
+• View card details: "view card"
+• Fund card: "buy cngn"
+• Check balance: "balance"`;
+
       return response;
     } catch (error) {
       logger.error("Error listing cards:", error);
+      return MESSAGE_TEMPLATES.ERROR_GENERIC;
+    }
+  }
+
+  /**
+   * Handle view card details intent
+   */
+  private async handleViewCard(user: any): Promise<string> {
+    try {
+      const cards = await CardService.getUserCards(user.id);
+
+      if (cards.length === 0) {
+        return `📱 You don't have any cards yet.
+
+Type "create card" to get started!`;
+      }
+
+      // Get the most recent card
+      const card = cards[0];
+      const cardMetadata = card.metadata as any;
+      const mockData = cardMetadata?.cardData || cardMetadata;
+
+      return `💳 *Your Virtual Card Details*
+
+🎴 Card Number: ${card.cardNumber}
+📅 Expiry: ${mockData?.expiryMonth || "12"}/${mockData?.expiryYear || "28"}
+🔒 CVV: ${mockData?.cvv || "123"}
+🏷️ Type: ${mockData?.brand?.toUpperCase() || "VISA"}
+💰 Balance: ${card.cNGNBalance} cNGN
+📱 Status: ${card.status}
+
+*Security Notice:*
+⚠️ Keep these details private
+⚠️ Never share CVV with anyone
+⚠️ Use only on trusted websites
+
+*Actions:*
+• Fund card: "buy cngn"
+• Check balance: "balance"
+• View transactions: "history"`;
+    } catch (error) {
+      logger.error("Error viewing card details:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
     }
   }
@@ -520,34 +574,67 @@ Type "create card" to get started!`;
    */
   private async handleTransactionHistory(user: any): Promise<string> {
     try {
-      const transactions = await CardService.getRecentTransactions(user.id, 5);
+      const transactions = await CardService.getRecentTransactions(user.id, 10);
 
       if (transactions.length === 0) {
-        return `📊 *No transactions found*
+        return `📊 *Transaction History*
 
-Start by creating a card and making your first transaction!
+No transactions yet. Get started:
 
+*💰 First Steps:*
+• Buy crypto: "buy cngn" or "buy 10000"
 • Create card: "create card"
-• Buy crypto: "buy cngn"
-• Send money: "send 1000 to alice.base.eth"`;
+• Check balance: "balance"
+
+*💸 After funding:*
+• Send money: "send 1000 to alice.base.eth"
+• Withdraw: "withdraw 5000"
+
+Your transactions will appear here once you start! 🚀`;
       }
 
-      let response = `📊 *Recent Transactions*
+      let response = `📊 *Transaction History*
 
 `;
 
       transactions.forEach((tx, index) => {
         const date = new Date(tx.createdAt).toLocaleDateString();
-        response += `${index + 1}. ${tx.type} - ${tx.amount} ${tx.currency}
-   ${tx.status} • ${date}`;
+        const time = new Date(tx.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+
+        // Format transaction type
+        let typeIcon = "💰";
+        if (tx.type === "DEPOSIT" || tx.type === "ONRAMP") typeIcon = "💰";
+        if (tx.type === "WITHDRAWAL" || tx.type === "OFFRAMP") typeIcon = "💸";
+        if (tx.type === "TRANSFER") typeIcon = "📤";
+        if (tx.type === "PAYMENT") typeIcon = "💳";
+
+        response += `${typeIcon} ${tx.type}
+💵 ${tx.amount} ${tx.currency || "cNGN"}
+📅 ${date} ${time}
+✅ ${tx.status}`;
+
         if (tx.description) {
           response += `
-   ${tx.description}`;
+📝 ${tx.description}`;
         }
+
+        if (tx.txHash) {
+          response += `
+🔗 ${tx.txHash.slice(0, 10)}...`;
+        }
+
         response += `
 
 `;
       });
+
+      response += `*Actions:*
+• Buy more: "buy cngn"
+• Send money: "send [amount] to [address]"
+• Check balance: "balance"`;
 
       return response;
     } catch (error) {
@@ -743,6 +830,92 @@ Please enter your 4-digit PIN:`;
   }
 
   /**
+   * Get contextual help based on user's progress
+   */
+  private async getContextualHelp(user: any): Promise<string> {
+    try {
+      const kycStatus = await UserService.getKYCStatus(user.id);
+      const hasPinSetup = await PinService.hasPinSetup(user.id);
+      const cardCount = await CardService.getCardCount(user.id);
+
+      // New user - needs KYC
+      if (!kycStatus.verified) {
+        return `🎉 *Welcome to Nelo!*
+
+Your Web3 financial assistant for Nigeria 🇳🇬
+
+*🚀 Let's get you started (2 minutes):*
+1. Submit KYC: "submit kyc"
+2. Set security PIN: "setup pin"  
+3. Create virtual card: "create card"
+4. Buy crypto: "buy cngn"
+
+Type "submit kyc" to begin! ✨`;
+      }
+
+      // KYC done, needs PIN
+      if (!hasPinSetup) {
+        return `✅ *KYC Verified!*
+
+Next step: Set up your security PIN
+
+*🔐 Security Setup:*
+• Set PIN: "setup pin"
+
+*After PIN setup:*
+• Create card: "create card"
+• Buy crypto: "buy cngn"
+
+Type "setup pin" to continue! 🔒`;
+      }
+
+      // KYC + PIN done, needs card
+      if (cardCount === 0) {
+        return `🔒 *Account Secured!*
+
+Ready to create your virtual card?
+
+*💳 Next Steps:*
+• Create card: "create card"
+• Buy crypto: "buy cngn"
+• Check balance: "balance"
+
+Type "create card" to get started! 🚀`;
+      }
+
+      // Fully set up user
+      return `🤖 *Nelo - Ready to Use!*
+
+*💰 Buy & Manage Crypto:*
+• buy cngn - Buy Nigerian Naira (cNGN)
+• buy usdc - Buy USD Coin
+• balance - Check your portfolio
+
+*💳 Cards & Payments:*
+• my cards - View your cards
+• view card - See card details
+• send 1000 to alice.base.eth
+
+*🏦 Banking:*
+• add bank - Link Nigerian bank
+• withdraw 5000 - Cash out to bank
+
+*📊 Account:*
+• history - View transactions
+• profile - Your account info
+
+*🏷️ Basename:*
+• set basename alice.base.eth
+• check basename alice.base.eth
+
+Need help with anything specific? 💬`;
+    } catch (error) {
+      logger.error("Error getting contextual help:", error);
+      return MESSAGE_TEMPLATES.HELP;
+    }
+  }
+
+  /**
    * Handle other methods with simple responses for now
    */
   private async handleSendMoney(user: any, data: any): Promise<string> {
@@ -834,15 +1007,22 @@ You can:
       return `👤 *Your Profile*
 
 📱 WhatsApp: ${user.whatsappNumber}
-💳 Wallet: \`${user.walletAddress?.slice(0, 6)}...${user.walletAddress?.slice(
-        -4
-      )}\`
+🏷️ Name: ${user.firstName || "Not set"} ${user.lastName || ""}
+💳 Wallet Address:
+\`${user.walletAddress}\`
+
 🎴 Cards: ${cardCount}
-🆔 KYC Status: ${kycStatus.verified ? "✅ Verified" : "❌ Not Verified"}
-🔐 PIN Status: ${hasPinSetup ? "✅ Set Up" : "❌ Not Set Up"}
+🆔 KYC: ${kycStatus.verified ? "✅ Verified" : "❌ Not Verified"}
+🔐 PIN: ${hasPinSetup ? "✅ Set Up" : "❌ Not Set Up"}
+🏷️ Basename: ${user.basename || "Not set"}
 📅 Joined: ${new Date(user.createdAt).toLocaleDateString()}
 
-Type "help" to see what you can do!`;
+*💡 Tip:* Tap and hold the wallet address to copy it
+
+*Actions:*
+• Set basename: "set basename yourname.base.eth"
+• Check balance: "balance"
+• View cards: "my cards"`;
     } catch (error) {
       logger.error("Error getting profile:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
@@ -863,6 +1043,31 @@ Type "help" to see what you can do!`;
         return "❌ Maximum purchase is $10,000 USDC";
       }
 
+      // Use OnRampService for USDC purchases
+      const result = await OnRampService.initiateUSDCPurchase({
+        userId: user.id,
+        amountUSD: amountNum,
+        paymentMethod: "CARD",
+      });
+
+      if (result.success) {
+        return `💵 *Buy ${amountNum} USDC*
+
+💰 Cost: $${amountNum} USD
+🪙 You'll receive: ${amountNum} USDC
+⚡ Network: Base Sepolia
+🔗 Rate: 1 USD = 1 USDC
+
+${result.paymentInstructions}
+
+*What is USDC?*
+USD Coin - A stable cryptocurrency backed 1:1 by US Dollars. Perfect for international transactions.`;
+      } else {
+        return `❌ Failed to initiate USDC purchase: ${result.error}
+
+Try again with: "buy usdc"`;
+      }
+
       return `💵 *Buy ${amountNum} USDC*
 
 💰 Cost: $${amountNum} USD
@@ -870,12 +1075,8 @@ Type "help" to see what you can do!`;
 ⚡ Network: Base Sepolia
 🔗 Rate: 1 USD = 1 USDC
 
-*Payment Methods:*
-1️⃣ Credit/Debit Card (via MoonPay)
-2️⃣ Bank Transfer (International)
-3️⃣ Crypto Swap (if you have other tokens)
-
-Reply with your choice (1, 2, or 3):
+*Ready to purchase!*
+Click the MoonPay link below to buy with your card:
 
 *What is USDC?*
 USD Coin - A stable cryptocurrency backed 1:1 by US Dollars. Perfect for international transactions.`;
@@ -907,12 +1108,19 @@ USDC/USDT will be available when we move to mainnet.`;
 
 Basenames are human-readable addresses on Base network.
 
-Example: "set basename alice.base.eth"
+*Current wallet:*
+\`${user.walletAddress}\`
+
+*Example:* "set basename alice.base.eth"
 
 *Benefits:*
 • Easy to remember address
 • Receive payments with your name
 • Professional crypto identity
+
+*Steps:*
+1. Register at https://base.org/names
+2. Set it here: "set basename yourname.base.eth"
 
 *Format:* yourname.base.eth`;
       }
@@ -921,34 +1129,61 @@ Example: "set basename alice.base.eth"
       if (!BasenameService.isValidBasename(basename)) {
         return `❌ Invalid basename format.
 
-Please use: yourname.base.eth
-Example: "set basename alice.base.eth"`;
+*Correct format:* yourname.base.eth
+
+*Examples:*
+• alice.base.eth ✅
+• john123.base.eth ✅
+• my-name.base.eth ✅
+
+Try: "set basename yourname.base.eth"`;
       }
 
       // Check if basename is available
       const isRegistered = await BasenameService.isBasenameRegistered(basename);
       if (!isRegistered) {
-        return `❌ Basename "${basename}" is not registered.
+        return `❌ Basename "${basename}" is not registered yet.
 
-Please register it first on https://base.org/names
-Then come back and set it: "set basename ${basename}"`;
+*Next steps:*
+1. 🌐 Register at: https://base.org/names
+2. 🔗 Connect wallet: ${user.walletAddress.slice(0, 10)}...
+3. 💰 Pay registration fee (usually ~$5)
+4. ✅ Come back: "set basename ${basename}"
+
+*Why register?*
+• Own your Web3 identity
+• Easy payments & transfers
+• Professional crypto presence`;
       }
 
       // Update user basename
       const result = await UserService.updateBasename(user.id, basename);
       if (result) {
-        return `✅ *Basename Set Successfully!*
+        return `🎉 *Basename Set Successfully!*
 
 🏷️ Your basename: ${basename}
-💳 Wallet: ${user.walletAddress}
+💳 Wallet: ${user.walletAddress.slice(0, 10)}...${user.walletAddress.slice(-4)}
 ✅ Verified and linked
 
-People can now send you money using:
+*Now people can send you money using:*
 "send 1000 to ${basename}"
 
-Much easier than remembering your wallet address! 🎉`;
+*Much easier than:*
+"send 1000 to ${user.walletAddress}"
+
+Your Web3 identity is ready! 🚀`;
       } else {
-        return `❌ Failed to set basename. Please ensure it belongs to your wallet address.`;
+        return `❌ Failed to set basename.
+
+*Possible issues:*
+• Basename doesn't belong to your wallet
+• Network connection error
+• Basename not fully registered
+
+*Solutions:*
+1. Verify ownership at https://base.org/names
+2. Wait a few minutes and try again
+3. Contact support if issue persists`;
       }
     } catch (error) {
       logger.error("Error setting basename:", error);
