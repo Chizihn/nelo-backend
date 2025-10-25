@@ -858,9 +858,9 @@ Example: "John Doe"`;
 🪙 You'll receive: ${amountNum.toLocaleString()} cNGN
 🔗 Rate: 1 NGN = 1 cNGN (no fees!)
 
-${result.paymentInstructions}
-
-⚠️ Transfer the exact amount: ₦${amountNum.toLocaleString()}`;
+${
+  result.paymentInstructions
+}\n\n⚠️ Transfer the exact amount: ₦${amountNum.toLocaleString()}\n\nAfter you've completed the transfer, reply with:\n• paid <reference> (recommended)\n• or paid ${amountNum} (amount only)`;
       } else {
         return `❌ Failed to create payment: ${result.error}
 
@@ -1217,9 +1217,9 @@ Only send these tokens to this address!`;
 *💡 Tip:* Tap and hold the wallet address to copy it
 
 *Actions:*
-• Set basename: "set basename yourname.base.eth"
 • Check balance: "balance"
 • View cards: "my cards"`;
+      // • Set basename: "set basename yourname.base.eth"
     } catch (error) {
       logger.error("Error getting profile:", error);
       return MESSAGE_TEMPLATES.ERROR_GENERIC;
@@ -1800,18 +1800,9 @@ Example: "buy 10000"
       });
 
       if (result.success) {
-        return `🏦 *Bank Transfer Initiated*
-
-💰 Amount: ₦${amountNum.toLocaleString()}
-🪙 You'll receive: ${amountNum.toLocaleString()} cNGN
-🔗 Rate: 1 NGN = 1 cNGN (no fees!)
-
-${result.paymentInstructions}
-
-*After completing the transfer:*
-Type "paid ${amount}" to confirm your payment
-
-⚠️ Transfer the exact amount: ₦${amountNum.toLocaleString()}`;
+        return `🏦 *Bank Transfer Initiated*\n\n💰 Amount: ₦${amountNum.toLocaleString()}\n🪙 You'll receive: ${amountNum.toLocaleString()} cNGN\n🔗 Rate: 1 NGN = 1 cNGN (no fees!)\n\n${
+          result.paymentInstructions
+        }\n\n*After completing the transfer:*\nReply with:\n• paid <reference> (recommended)\n• or paid ${amount} to confirm the amount\n\n⚠️ Transfer the exact amount: ₦${amountNum.toLocaleString()}`;
       } else {
         return `❌ Failed to initiate bank transfer: ${result.error}
 
@@ -2064,7 +2055,7 @@ Please try again or contact support if you made the payment.`;
 
       const amountNum = parseFloat(amount);
       if (amountNum <= 0) {
-        return "Invalid amount. Please enter a positive number.";
+        return "❌ Invalid amount. Please enter a positive number.";
       }
 
       const cards = await CardService.getUserCards(user.id);
